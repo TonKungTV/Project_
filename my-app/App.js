@@ -11,7 +11,6 @@ import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import DailyReminderScreen from './screens/DailyReminderScreen';
 import Home from './screens/Home';
-import HomeScreen from './screens/HomeScreen';
 import SettingsScreen from './screens/SettingsScreen';
 // import SettingsScreen from './screens/SettingsScreen';
 
