@@ -1,3 +1,4 @@
+// หน้าหลัก
 import React from 'react';
 import {
   View,
