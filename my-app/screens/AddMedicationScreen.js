@@ -1,90 +1,95 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, StyleSheet, TouchableOpacity, Button, Alert, ScrollView
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
-
-import moment from 'moment';
-
-const toggleOptions = (current, setFunc, value) => {
-  setFunc(current === value ? null : value);
-};
+import { BASE_URL } from './config';
 
 const AddMedicationScreen = ({ navigation }) => {
   const [name, setName] = useState('');
-  const [group, setGroup] = useState('');
   const [note, setNote] = useState('');
-  const [medType, setMedType] = useState(null);
+  const [groupID, setGroupID] = useState('');
+  const [typeID, setTypeID] = useState(null);
   const [dosage, setDosage] = useState('');
-  const [unit, setUnit] = useState('');
-  const [withFood, setWithFood] = useState(null);
-  const [mealTime, setMealTime] = useState([]);
+  const [unitID, setUnitID] = useState('');
+  const [usageMealID, setUsageMealID] = useState(null);
+  const [priority, setPriority] = useState(null);
+  const [prePostTime, setPrePostTime] = useState(null);
+  const [customTime, setCustomTime] = useState('');
+  const [defaultTimes, setDefaultTimes] = useState([]);
+  const [selectedTimeIds, setSelectedTimeIds] = useState([]);
   const [startDate, setStartDate] = useState(new Date());
   const [endDate, setEndDate] = useState(new Date());
-  const [importance, setImportance] = useState(null);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
-  const [date, setDate] = useState(new Date());
-  const [show, setShow] = useState(false);
 
-  const onChange = (event, selectedDate) => {
-    const currentDate = selectedDate || date;
-    setShow(Platform.OS === 'ios'); // ปิด popup บน Android
-    setDate(currentDate);
+  // ✅ ดึงเวลาทานยาจาก backend
+  useEffect(() => {
+    fetch(`${BASE_URL}/api/userdefaultmealtime`)
+      .then(res => res.json())
+      .then(data => setDefaultTimes(data))
+      .catch(err => console.error(err));
+  }, []);
+
+  const convertMeal = (mealId) => {
+    switch (mealId) {
+      case 1: return 'เช้า';
+      case 2: return 'กลางวัน';
+      case 3: return 'เย็น';
+      case 4: return 'ก่อนนอน';
+      default: return 'ไม่ระบุ';
+    }
   };
 
-  const showDatepicker = () => {
-    setShow(true);
-  };
-
-  const toggleMeal = (meal) => {
-    setMealTime(prev =>
-      prev.includes(meal)
-        ? prev.filter(m => m !== meal)
-        : [...prev, meal]
+  const toggleTime = (id) => {
+    setSelectedTimeIds(prev =>
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
     );
   };
 
   const handleSave = async () => {
-    if (!name || !medType || mealTime.length === 0) {
+    if (!name || !typeID || selectedTimeIds.length === 0 || !groupID) {
       Alert.alert('กรุณากรอกข้อมูลให้ครบ');
       return;
     }
-
-    const newMedication = {
-      name,
-      group,
-      note,
-      medType,
-      dosage,
-      unit,
-      withFood,
-      mealTime,
-      startDate,
-      endDate,
-      importance,
-      createdAt: new Date().toISOString()
+    const defaultTimeFields = {};
+    selectedTimeIds.forEach((id, index) => {
+      defaultTimeFields[`DefaultTime_ID_${index + 1}`] = id;
+    });
+    const medicationData = {
+      Name: name,
+      Note: note,
+      GroupID: parseInt(groupID),
+      TypeID: typeID,
+      Dosage: parseInt(dosage),
+      UnitID: parseInt(unitID),
+      UsageMealID: usageMealID,
+      Priority: priority === 'สูง' ? 1 : 2,
+      PrePostTime: prePostTime === 'custom' ? parseInt(customTime) : prePostTime,
+      StartDate: startDate.toISOString().split('T')[0],
+      EndDate: endDate.toISOString().split('T')[0],
+      ...defaultTimeFields
     };
 
-    try {
-      const existing = await AsyncStorage.getItem('medications');
-      const meds = existing ? JSON.parse(existing) : [];
-      meds.push(newMedication);
-      await AsyncStorage.setItem('medications', JSON.stringify(meds));
 
-      // ส่งไป backend
-      await fetch('http://192.168.1.219:3000/medications', {
+    try {
+      const response = await fetch(`${BASE_URL}/api/medications`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newMedication),
+        body: JSON.stringify(medicationData),
       });
 
-      Alert.alert('เพิ่มยาสำเร็จ');
-      navigation.goBack();
-    } catch (e) {
-      console.error(e);
-      Alert.alert('เกิดข้อผิดพลาด');
+      if (response.ok) {
+        Alert.alert('เพิ่มยาเรียบร้อย');
+        navigation.goBack();
+      } else {
+        const errMsg = await response.text();
+        console.log('Error response:', errMsg);
+        Alert.alert('เกิดข้อผิดพลาดในการเพิ่ม');
+      }
+    } catch (error) {
+      console.error('ERROR:', error);
+      Alert.alert('เชื่อมต่อ backend ไม่ได้');
     }
   };
 
@@ -93,20 +98,21 @@ const AddMedicationScreen = ({ navigation }) => {
       <Text style={styles.label}>ชื่อยา</Text>
       <TextInput style={styles.input} value={name} onChangeText={setName} />
 
-      <Text style={styles.label}>กลุ่มโรค</Text>
-      <TextInput style={styles.input} value={group} onChangeText={setGroup} />
+      <Text style={styles.label}>กลุ่มโรค (GroupID)</Text>
+      <TextInput style={styles.input} value={groupID} onChangeText={setGroupID} keyboardType="numeric" />
 
       <Text style={styles.label}>หมายเหตุเพิ่มเติม</Text>
       <TextInput style={styles.input} value={note} onChangeText={setNote} multiline />
 
-      <Text style={styles.label}>ประเภท</Text>
+      <Text style={styles.label}>ประเภทยา</Text>
       <View style={styles.toggleRow}>
-        {['เม็ด', 'น้ำ', 'ฉีด', 'ทา'].map(t => (
+        {['เม็ด', 'น้ำ', 'ฉีด', 'ทา'].map((type, index) => (
           <TouchableOpacity
-            key={t}
-            style={[styles.toggleButton, medType === t && styles.toggleActive]}
-            onPress={() => toggleOptions(medType, setMedType, t)}>
-            <Text>{t}</Text>
+            key={type}
+            style={[styles.toggleButton, typeID === index + 1 && styles.toggleActive]}
+            onPress={() => setTypeID(index + 1)}
+          >
+            <Text>{type}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -121,76 +127,108 @@ const AddMedicationScreen = ({ navigation }) => {
         />
         <TextInput
           style={[styles.input, { flex: 1 }]}
-          value={unit}
-          onChangeText={setUnit}
+          value={unitID}
+          onChangeText={setUnitID}
+          placeholder="รหัสหน่วย"
+          keyboardType="numeric"
         />
       </View>
 
-      <Text style={styles.label}>พร้อมอาหาร</Text>
+      <Text style={styles.label}>วิธีกินยา</Text>
       <View style={styles.toggleRow}>
-        {['พร้อมอาหาร', 'เวลากินยา'].map(option => (
+        {[
+          { label: 'พร้อมอาหาร', id: 1 },
+          { label: 'ก่อนอาหาร', id: 2 },
+          { label: 'หลังอาหาร', id: 3 },
+        ].map(opt => (
           <TouchableOpacity
-            key={option}
-            style={[
-              styles.toggleButton,
-              withFood === option && styles.toggleActive,
-            ]}
-            onPress={() => toggleOptions(withFood, setWithFood, option)}>
-            <Text>{option}</Text>
+            key={opt.id}
+            style={[styles.toggleButton, usageMealID === opt.id && styles.toggleActive]}
+            onPress={() => {
+              setUsageMealID(opt.id);
+              setPrePostTime(null); // reset เวลาเมื่อเปลี่ยนประเภท
+              setCustomTime('');
+            }}
+          >
+            <Text>{opt.label}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      <Text style={styles.label}>มื้ออาหาร</Text>
-      <View style={styles.toggleRow}>
-        {['เช้า', 'เที่ยง', 'เย็น', 'ก่อนนอน'].map(meal => (
-          <TouchableOpacity
-            key={meal}
-            style={[
-              styles.toggleButton,
-              mealTime.includes(meal) && styles.toggleActive,
-            ]}
-            onPress={() => toggleMeal(meal)}>
-            <Text>{meal}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      {/* หากเลือก "ก่อนอาหาร" หรือ "หลังอาหาร" ให้เลือกเวลา */}
+      {(usageMealID === 2 || usageMealID === 3) && (
+        <>
+          <Text style={styles.label}>เลือกเวลาก่อน/หลังอาหาร</Text>
+          <View style={styles.toggleRow}>
+            {[15, 30].map((min) => (
+              <TouchableOpacity
+                key={min}
+                style={[styles.toggleButton, prePostTime === min && styles.toggleActive]}
+                onPress={() => {
+                  setPrePostTime(min);
+                  setCustomTime('');
+                }}
+              >
+                <Text>{min} นาที</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={[
+                styles.toggleButton,
+                prePostTime === 'custom' && styles.toggleActive,
+              ]}
+              onPress={() => {
+                setPrePostTime('custom');
+              }}
+            >
+              <Text>เพิ่มเอง</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* ช่องกรอกเวลาที่กำหนดเอง */}
+          {prePostTime === 'custom' && (
+            <TextInput
+              placeholder="ระบุเวลา (นาที)"
+              style={styles.input}
+              keyboardType="numeric"
+              value={customTime}
+              onChangeText={setCustomTime}
+            />
+          )}
+        </>
+      )}
+
+      <Text style={styles.label}>มื้อ/เวลาที่กินยา</Text>
+      {defaultTimes.map(time => (
+        <TouchableOpacity
+          key={time.DefaultTime_ID}
+          onPress={() => toggleTime(time.DefaultTime_ID)}
+          style={[
+            styles.timeButton,
+            selectedTimeIds.includes(time.DefaultTime_ID) && styles.selected
+          ]}
+        >
+          <Text>{`${convertMeal(time.MealID)} (${time.Time.slice(0, 5)})`}</Text>
+        </TouchableOpacity>
+      ))}
 
       <Text style={styles.label}>ระยะเวลา</Text>
-      <View>
-      <Button onPress={showDatepicker} title="เลือกวันที่" />
-      {show && (
-        <DateTimePicker
-          testID="dateTimePicker"
-          value={date}
-          mode={'date'}
-          display="default"
-          onChange={onChange}
-        />
-      )}
-    </View>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+        <Button title={`เริ่มต้น ${startDate.toLocaleDateString('th-TH')}`} onPress={() => setShowStartPicker(true)} />
+        <Button title={`สิ้นสุด ${endDate.toLocaleDateString('th-TH')}`} onPress={() => setShowEndPicker(true)} />
+      </View>
 
       {showStartPicker && (
-        <DateTimePicker
-          value={startDate}
-          mode="date"
-          display="default"
-          onChange={(e, selectedDate) => {
-            setShowStartPicker(false);
-            if (selectedDate) setStartDate(selectedDate);
-          }}
-        />
+        <DateTimePicker value={startDate} mode="date" onChange={(e, selected) => {
+          setShowStartPicker(false);
+          if (selected) setStartDate(selected);
+        }} />
       )}
       {showEndPicker && (
-        <DateTimePicker
-          value={endDate}
-          mode="date"
-          display="default"
-          onChange={(e, selectedDate) => {
-            setShowEndPicker(false);
-            if (selectedDate) setEndDate(selectedDate);
-          }}
-        />
+        <DateTimePicker value={endDate} mode="date" onChange={(e, selected) => {
+          setShowEndPicker(false);
+          if (selected) setEndDate(selected);
+        }} />
       )}
 
       <Text style={styles.label}>ความสำคัญ</Text>
@@ -198,12 +236,9 @@ const AddMedicationScreen = ({ navigation }) => {
         {['สูง', 'ปกติ'].map(level => (
           <TouchableOpacity
             key={level}
-            style={[
-              styles.toggleButton,
-              importance === level && styles.toggleActive,
-              level === 'สูง' && { backgroundColor: '#faa' },
-            ]}
-            onPress={() => toggleOptions(importance, setImportance, level)}>
+            style={[styles.toggleButton, priority === level && styles.toggleActive]}
+            onPress={() => setPriority(level)}
+          >
             <Text>{level}</Text>
           </TouchableOpacity>
         ))}
@@ -212,14 +247,14 @@ const AddMedicationScreen = ({ navigation }) => {
       <View style={{ marginTop: 20 }}>
         <Button title="บันทึก" onPress={handleSave} />
         <View style={{ height: 10 }} />
-        <Button title="ลบ" color="gray" onPress={() => navigation.goBack()} />
+        <Button title="ยกเลิก" color="gray" onPress={() => navigation.goBack()} />
       </View>
     </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { padding: 20 },
+  container: { padding: 20, backgroundColor: '#fff' },
   label: { fontWeight: 'bold', marginBottom: 6, marginTop: 15 },
   input: {
     borderWidth: 1,
@@ -236,14 +271,14 @@ const styles = StyleSheet.create({
     marginRight: 10,
     marginBottom: 10,
   },
-  toggleActive: {
-    backgroundColor: '#aef',
-  },
-  dateButton: {
-    backgroundColor: '#afa',
+  toggleActive: { backgroundColor: '#aef' },
+  timeButton: {
     padding: 10,
+    backgroundColor: '#eee',
+    marginVertical: 5,
     borderRadius: 8,
   },
+  selected: { backgroundColor: '#aef' },
 });
 
 export default AddMedicationScreen;
