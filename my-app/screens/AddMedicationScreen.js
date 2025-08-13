@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, TextInput, StyleSheet, TouchableOpacity, Button, Alert, ScrollView
+  View, Text, TextInput, StyleSheet, TouchableOpacity,
+  Button, Alert, ScrollView, Platform
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { BASE_URL } from './config';
@@ -247,6 +248,7 @@ const AddMedicationScreen = ({ navigation }) => {
       <View style={{ marginTop: 20 }}>
         <Button title="บันทึก" onPress={handleSave} />
         <View style={{ height: 10 }} />
+        <Button title="ยกเลิก" color="gray" onPress={() => navigation.goBack()} />
         <Button title="ยกเลิก" color="gray" onPress={() => navigation.goBack()} />
       </View>
     </ScrollView>
