@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { BASE_URL } from './config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const AddMedicationScreen = ({ navigation }) => {
   const [name, setName] = useState('');
@@ -53,46 +54,80 @@ const AddMedicationScreen = ({ navigation }) => {
       Alert.alert('กรุณากรอกข้อมูลให้ครบ');
       return;
     }
+
+// ถ้าเลือกก่อน/หลังอาหาร ต้องเลือกนาทีด้วย  
+ if ((usageMealID === 2 || usageMealID === 3)) {
+     const needMinutes =
+       prePostTime === null ||
+       prePostTime === undefined ||
+       (prePostTime === 'custom' && (!customTime || isNaN(parseInt(customTime, 10))));
+     if (needMinutes) {
+       Alert.alert('โปรดเลือกจำนวน “นาที” สำหรับก่อน/หลังอาหาร (เช่น 15 หรือ 30 นาที)');
+       return;
+     }
+   }
+
+      // ✅ ดึง userId จาก AsyncStorage
+  const userIdStr = await AsyncStorage.getItem('userId');
+  const userId = userIdStr ? parseInt(userIdStr, 10) : null;
+  if (!userId) {
+    Alert.alert('กรุณาเข้าสู่ระบบก่อนเพิ่มยา');
+    navigation.navigate('LoginScreen');
+    return;
+  }
+
     const defaultTimeFields = {};
     selectedTimeIds.forEach((id, index) => {
       defaultTimeFields[`DefaultTime_ID_${index + 1}`] = id;
     });
+
+    // แปลง PrePostTime เป็นตัวเลขนาทีที่แน่นอน
+   const prePostMinutes =
+     (usageMealID === 2 || usageMealID === 3)
+       ? (prePostTime === 'custom'
+           ? parseInt(customTime, 10)
+           : prePostTime)
+       : null;
+
     const medicationData = {
-      Name: name,
-      Note: note,
-      GroupID: parseInt(groupID),
-      TypeID: typeID,
-      Dosage: parseInt(dosage),
-      UnitID: parseInt(unitID),
-      UsageMealID: usageMealID,
-      Priority: priority === 'สูง' ? 1 : 2,
-      PrePostTime: prePostTime === 'custom' ? parseInt(customTime) : prePostTime,
-      StartDate: startDate.toISOString().split('T')[0],
-      EndDate: endDate.toISOString().split('T')[0],
-      ...defaultTimeFields
-    };
-
-
-    try {
-      const response = await fetch(`${BASE_URL}/api/medications`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(medicationData),
-      });
-
-      if (response.ok) {
-        Alert.alert('เพิ่มยาเรียบร้อย');
-        navigation.goBack();
-      } else {
-        const errMsg = await response.text();
-        console.log('Error response:', errMsg);
-        Alert.alert('เกิดข้อผิดพลาดในการเพิ่ม');
-      }
-    } catch (error) {
-      console.error('ERROR:', error);
-      Alert.alert('เชื่อมต่อ backend ไม่ได้');
-    }
+    // ✅ แนบ UserID ไปด้วย
+    UserID: userId,
+    Name: name,
+    Note: note,
+    GroupID: parseInt(groupID, 10),
+    TypeID: typeID,
+    TypeID: parseInt(typeID, 10),
+    Dosage: dosage ? parseInt(dosage, 10) : null,
+    UnitID: unitID ? parseInt(unitID, 10) : null,
+    UsageMealID: usageMealID ?? null,
+    Priority: priority === 'สูง' ? 2 : 1, // ถ้าตาราง priority: 1=ปกติ, 2=สำคัญ/สูง
+    PrePostTime: prePostTime === 'custom' ? (customTime ? parseInt(customTime, 10) : null) : prePostTime,
+    PrePostTime: prePostMinutes,
+    StartDate: startDate.toISOString().split('T')[0],
+    EndDate: endDate.toISOString().split('T')[0],
+    ...defaultTimeFields
   };
+
+  try {
+    const response = await fetch(`${BASE_URL}/api/medications`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(medicationData),
+    });
+
+    if (response.ok) {
+      Alert.alert('เพิ่มยาเรียบร้อย');
+      navigation.goBack();
+    } else {
+      const errMsg = await response.text();
+      console.log('Error response:', errMsg);
+      Alert.alert('เกิดข้อผิดพลาดในการเพิ่ม');
+    }
+  } catch (error) {
+    console.error('ERROR:', error);
+    Alert.alert('เชื่อมต่อ backend ไม่ได้');
+  }
+};
 
   return (
     <ScrollView style={styles.container}>
@@ -248,7 +283,6 @@ const AddMedicationScreen = ({ navigation }) => {
       <View style={{ marginTop: 20 }}>
         <Button title="บันทึก" onPress={handleSave} />
         <View style={{ height: 10 }} />
-        <Button title="ยกเลิก" color="gray" onPress={() => navigation.goBack()} />
         <Button title="ยกเลิก" color="gray" onPress={() => navigation.goBack()} />
       </View>
     </ScrollView>

@@ -133,73 +133,106 @@ app.get('/api/users', (req, res) => {
   });
 });
 
-app.post('/api/medications', async (req, res) => {
+app.post('/api/medications', (req, res) => {
   const data = req.body;
-  const {
+  console.log('📦 /api/medications payload:', data);
+
+  let {
     UserID, Name, Note, GroupID, TypeID, Dosage,
     UnitID, UsageMealID, PrePostTime, Priority,
     StartDate, EndDate,
-    DefaultTime_ID_1,
-    DefaultTime_ID_2,
-    DefaultTime_ID_3,
-    DefaultTime_ID_4
+    DefaultTime_ID_1, DefaultTime_ID_2, DefaultTime_ID_3, DefaultTime_ID_4
   } = data;
 
-  // แปลง PrePostTime ➜ TimeID (ถ้ามี)
-  let timeID = null;
-  if ((UsageMealID === 2 || UsageMealID === 3) && PrePostTime != null) {
-    const timeStr = `00:${String(PrePostTime).padStart(2, '0')}:00`; // เช่น 15 → '00:15:00'
+  const userIdNum = parseInt(UserID, 10);
+  if (!userIdNum) return res.status(400).json({ error: { message: 'UserID is required' } });
 
-    const query = 'SELECT TimeID FROM usagemealtime WHERE Time = ?';
-    db.query(query, [timeStr], (err, results) => {
-      if (err) return res.status(500).json({ error: err });
+  GroupID  = parseInt(GroupID, 10);
+  TypeID   = parseInt(TypeID, 10);
+  UnitID   = UnitID ? parseInt(UnitID, 10) : null;
+  Dosage   = Dosage ? parseInt(Dosage, 10) : null;
+  Priority = Priority ? parseInt(Priority, 10) : 1;
+  UsageMealID = (UsageMealID === undefined || UsageMealID === null) ? null : parseInt(UsageMealID, 10);
 
-      if (results.length > 0) {
-        timeID = results[0].TimeID;
-        proceedInsert(timeID);
-      } else {
-        // ไม่พบเวลา → ไม่ต้องใส่ timeID
-        proceedInsert(null);
+  const defaultTimeIds = [DefaultTime_ID_1, DefaultTime_ID_2, DefaultTime_ID_3, DefaultTime_ID_4]
+    .map(v => (v ? parseInt(v, 10) : null))
+    .filter(Boolean);
+
+  const sendDbError = (label, err) => {
+    console.error(`❌ ${label}:`, err);
+    return res.status(500).json({
+      error: {
+        code: err?.code,
+        errno: err?.errno,
+        sqlState: err?.sqlState,
+        sqlMessage: err?.sqlMessage || String(err),
+        where: label
       }
     });
-  } else {
-    proceedInsert(null);
-  }
+  };
 
-  // แยกฟังก์ชัน insert ออกมา
-  function proceedInsert(timeIDFinal) {
+  // helper: หา/สร้าง TimeID จากจำนวนนาที
+  const getOrCreateTimeID = (minutes, cb) => {
+    if (minutes === null || minutes === undefined) return cb(null, null);
+    const mm = String(parseInt(minutes, 10)).padStart(2, '0');
+    const timeStr = `00:${mm}:00`; // '00:15:00'
+
+    db.query('SELECT TimeID FROM usagemealtime WHERE Time = ?', [timeStr], (err, rows) => {
+      if (err) return cb(err);
+      if (rows.length > 0) return cb(null, rows[0].TimeID);
+      db.query('INSERT INTO usagemealtime (Time) VALUES (?)', [timeStr], (err2, result2) => {
+        if (err2) return cb(err2);
+        cb(null, result2.insertId);
+      });
+    });
+  };
+
+  const proceedInsert = (timeIDFinal) => {
     const insertMain = `
       INSERT INTO medication
       (userid, name, note, groupid, typeid, dosage, unitid, usagemealid, timeid, priority, startdate, enddate)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
-
     db.query(
       insertMain,
-      [UserID, Name, Note, GroupID, TypeID, Dosage, UnitID, UsageMealID, timeIDFinal, Priority, StartDate, EndDate],
+      [userIdNum, Name, Note || null, GroupID, TypeID, Dosage, UnitID, UsageMealID, timeIDFinal, Priority, StartDate, EndDate],
       (err, result) => {
-        if (err) return res.status(500).json({ error: err });
+        if (err) return sendDbError('INSERT medication', err);
 
         const medId = result.insertId;
+        if (defaultTimeIds.length === 0) return res.status(201).json({ id: medId });
 
-        const timeIds = [DefaultTime_ID_1, DefaultTime_ID_2, DefaultTime_ID_3, DefaultTime_ID_4].filter(Boolean);
-        if (timeIds.length > 0) {
-          const values = timeIds.map(id => [medId, id]);
-          db.query(
-            'INSERT INTO medication_defaulttime (medicationid, defaulttime_id) VALUES ?',
-            [values],
-            (err2) => {
-              if (err2) return res.status(500).json({ error: err2 });
-              res.status(201).json({ id: medId });
-            }
-          );
-        } else {
-          res.status(201).json({ id: medId });
-        }
+        const values = defaultTimeIds.map(dt => [medId, dt]);
+        db.query(
+          'INSERT INTO medication_defaulttime (medicationid, defaulttime_id) VALUES ?',
+          [values],
+          (err2) => {
+            if (err2) return sendDbError('INSERT medication_defaulttime', err2);
+            res.status(201).json({ id: medId });
+          }
+        );
       }
     );
+  };
+
+  // ถ้าเป็นก่อน/หลังอาหารและมีนาที → หา/สร้าง TimeID
+  if ((UsageMealID === 2 || UsageMealID === 3) && PrePostTime != null) {
+    const mins = parseInt(PrePostTime, 10);
+    if (Number.isNaN(mins)) {
+      return res.status(400).json({ error: { message: 'PrePostTime must be number of minutes' } });
+    }
+    getOrCreateTimeID(mins, (err, timeId) => {
+      if (err) return sendDbError('getOrCreateTimeID', err);
+      proceedInsert(timeId);
+    });
+  } else {
+    // พร้อมอาหาร (1) หรือไม่ระบุนาที → timeid = NULL
+    proceedInsert(null);
   }
 });
+
+
+
 
 
 
