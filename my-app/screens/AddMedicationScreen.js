@@ -25,7 +25,7 @@ const AddMedicationScreen = ({ navigation }) => {
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
 
-  // ✅ ดึงเวลาทานยาจาก backend
+  //  ดึงเวลาทานยาจาก backend
   useEffect(() => {
     fetch(`${BASE_URL}/api/userdefaultmealtime`)
       .then(res => res.json())
@@ -67,7 +67,7 @@ const AddMedicationScreen = ({ navigation }) => {
      }
    }
 
-      // ✅ ดึง userId จาก AsyncStorage
+      //  ดึง userId จาก AsyncStorage
   const userIdStr = await AsyncStorage.getItem('userId');
   const userId = userIdStr ? parseInt(userIdStr, 10) : null;
   if (!userId) {
@@ -90,7 +90,7 @@ const AddMedicationScreen = ({ navigation }) => {
        : null;
 
     const medicationData = {
-    // ✅ แนบ UserID ไปด้วย
+    //  แนบ UserID ไปด้วย
     UserID: userId,
     Name: name,
     Note: note,
@@ -318,3 +318,5 @@ const styles = StyleSheet.create({
 });
 
 export default AddMedicationScreen;
+
+

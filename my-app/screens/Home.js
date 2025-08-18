@@ -30,7 +30,7 @@ const Home = () => {
   }, []);
 
   return (
-    <LinearGradient colors={['#4facfe', '#00f2fe']} style={styles.container}>
+    <LinearGradient colors={['#3da9fc', '#3da9fc']} style={styles.container}>
       <Animated.Text style={[styles.title, { opacity: fadeAnim }]}>
         MedCare
       </Animated.Text>

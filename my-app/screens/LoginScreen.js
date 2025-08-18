@@ -25,8 +25,8 @@ const LoginScreen = ({ navigation }) => {
             const data = await res.json();
 
             if (res.ok) {
-                const userId = data.userId; // ✅ ดึง userId ออกมาให้ชัดเจน
-                console.log('✅ Login Response:', data); // ⬅️ ดูว่าได้อะไรกลับมาจริง
+                const userId = data.userId; //  ดึง userId ออกมาให้ชัดเจน
+                console.log('✅ Login Response:', data); // ⬅ ดูว่าได้อะไรกลับมาจริง
                 await AsyncStorage.setItem('userId', data.user.id.toString());
 
                 Alert.alert('เข้าสู่ระบบสำเร็จ');

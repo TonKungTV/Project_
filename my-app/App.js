@@ -20,6 +20,7 @@ export default function App() {
   return (
     <NavigationContainer>
       <Stack.Navigator initialRouteName="Home">
+      {/* <Stack.Navigator initialRouteName="HomeScreen"> */}
         <Stack.Screen name="Home" component={Home} options={{ title: '' }} />
         <Stack.Screen name="HomeScreen" component={HomeScreen} options={{ title: '' }} />
         <Stack.Screen name="TestHomeScreen" component={TestHomeScreen} options={{ title: '' }} />
