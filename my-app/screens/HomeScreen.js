@@ -14,7 +14,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BASE_URL } from './config';
 
-// ✅ Component สำหรับแสดงสถานะ (กินแล้ว, ยังไม่กิน, บันทึกการกิน)
+// ✅ Component สำหรับแสดงสถานะ (กินแล้ว, ยังไม่กิน, ไม่มีการบันทึก)
 const StatusBadge = ({ status, onPress }) => {
   const getStatusConfig = (status) => {
     switch (status) {
@@ -22,8 +22,10 @@ const StatusBadge = ({ status, onPress }) => {
         return { color: '#28a745', icon: 'checkmark-circle', text: 'กินแล้ว' };
       case 'ยังไม่กิน':
         return { color: '#dc3545', icon: 'close-circle', text: 'ยังไม่กิน' };
+      case 'ไม่มีการบันทึก':
+        return { color: '#ffc107', icon: 'time-outline', text: 'ไม่มีการบันทึก' };
       default:
-        return { color: '#6c757d', icon: 'time', text: 'ยังไม่กิน' };
+        return { color: '#6c757d', icon: 'help-circle-outline', text: 'ไม่ทราบสถานะ' };
     }
   };
 
@@ -63,6 +65,29 @@ const TimeSection = ({ title, count, icon }) => (
   </View>
 );
 
+// ✅ Component สำหรับปุ่มฟิลเตอร์
+const FilterButton = ({ label, isActive, onPress, color, icon }) => (
+  <TouchableOpacity 
+    style={[
+      styles.filterButton, 
+      isActive && { backgroundColor: color, borderColor: color }
+    ]} 
+    onPress={onPress}
+  >
+    <Ionicons 
+      name={icon} 
+      size={16} 
+      color={isActive ? '#fff' : color} 
+    />
+    <Text style={[
+      styles.filterButtonText, 
+      isActive && { color: '#fff' }
+    ]}>
+      {label}
+    </Text>
+  </TouchableOpacity>
+);
+
 // ✅ ฟังก์ชันแปลงเวลาเป็นรูปแบบชั่วโมงและนาที
 const formatHM = (timeStr) => {
   if (!timeStr) return '';
@@ -80,7 +105,6 @@ const groupMedicationsByTime = (items) => {
   };
 
   items.forEach(item => {
-    // สมมติว่า item.rawTime มีเวลาในรูปแบบ "HH:MM"
     const timeStr = item.rawTime || '12:00';
     const hour = parseInt(timeStr.split(':')[0]);
     
@@ -104,10 +128,13 @@ const HomeScreen = ({ navigation }) => {
   const [selectedItem, setSelectedItem] = useState(null);
   
   // ✅ เพิ่ม state สำหรับผลข้างเคียงและเวลา
-  const [sideEffects, setSideEffects] = useState(''); // ผลข้างเคียง
-  const [medTime, setMedTime] = useState(new Date()); // เวลาที่เลือก
-  const [showTimePicker, setShowTimePicker] = useState(false); // เปิด/ปิด DateTimePicker
-  const [actualTakeTime, setActualTakeTime] = useState(''); // เวลาที่กินจริง (แสดงผล)
+  const [sideEffects, setSideEffects] = useState('');
+  const [medTime, setMedTime] = useState(new Date());
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [actualTakeTime, setActualTakeTime] = useState('');
+
+  // ✅ เพิ่ม state สำหรับฟิลเตอร์
+  const [activeFilter, setActiveFilter] = useState('ทั้งหมด');
 
   const load = async () => {
     const userId = await AsyncStorage.getItem('userId');
@@ -120,12 +147,13 @@ const HomeScreen = ({ navigation }) => {
         id: r.ScheduleID || `${r.MedicationID}-${i}`,
         scheduleId: r.ScheduleID || null,
         time: `${r.MealName} ${formatHM(r.Time)} น.`,
-        rawTime: r.Time, // เก็บเวลาดิบไว้สำหรับจัดกลุ่ม
+        rawTime: r.Time,
         name: r.name,
         dose: r.Dosage != null && r.DosageType ? `${r.Dosage} ${r.DosageType}` : '-',
         medType: r.TypeName || '-',
         importance: r.PriorityLabel || 'ปกติ',
-        status: r.Status || 'ยังไม่กิน',
+        // ✅ ปรับปรุงการกำหนดสถานะ
+        status: r.Status || 'ไม่มีการบันทึก',
       }));
       setItems(mapped);
     } catch (error) {
@@ -137,19 +165,36 @@ const HomeScreen = ({ navigation }) => {
     load();
   }, []);
 
-  // ✅ ฟังก์ชันที่ใช้เปลี่ยนสถานะ (กินแล้ว / ยังไม่กิน) - เพิ่มการส่งข้อมูลผลข้างเคียงและเวลา
+  // ✅ ฟังก์ชันสำหรับฟิลเตอร์รายการยา
+  const getFilteredItems = () => {
+    if (activeFilter === 'ทั้งหมด') {
+      return items;
+    }
+    return items.filter(item => item.status === activeFilter);
+  };
+
+  // ✅ ฟังก์ชันที่ใช้เปลี่ยนสถานะ
   const toggleStatus = async (item, customSideEffects = '', customTime = '') => {
-    const next = item.status === 'กินแล้ว' ? 'ยังไม่กิน' : 'กินแล้ว';
-    setItems((prev) => prev.map((x) => (x.id === item.id ? { ...x, status: next } : x)));
+    let nextStatus;
+    
+    // ✅ ปรับปรุงการเปลี่ยนสถานะ
+    if (item.status === 'ไม่มีการบันทึก' || item.status === 'ยังไม่กิน') {
+      nextStatus = 'กินแล้ว';
+    } else if (item.status === 'กินแล้ว') {
+      nextStatus = 'ยังไม่กิน';
+    } else {
+      nextStatus = 'ไม่มีการบันทึก';
+    }
+
+    setItems((prev) => prev.map((x) => (x.id === item.id ? { ...x, status: nextStatus } : x)));
 
     if (!item.scheduleId) return;
     try {
-      // ✅ ส่งข้อมูลเพิ่มเติมไปยัง backend
       const updateData = {
-        status: next,
-        sideEffects: customSideEffects || null, // ผลข้างเคียง
-        actualTime: customTime || null, // เวลาที่กินจริง
-        recordedAt: new Date().toISOString() // เวลาที่บันทึก
+        status: nextStatus,
+        sideEffects: customSideEffects || null,
+        actualTime: customTime || null,
+        recordedAt: new Date().toISOString()
       };
 
       await fetch(`${BASE_URL}/api/schedule/${item.scheduleId}/status`, {
@@ -160,26 +205,23 @@ const HomeScreen = ({ navigation }) => {
 
       console.log('✅ บันทึกสำเร็จ:', updateData);
     } catch (e) {
-      // ถ้า error ย้อนกลับสถานะ
       setItems((prev) => prev.map((x) => (x.id === item.id ? { ...x, status: item.status } : x)));
       console.error('Error updating status:', e);
       Alert.alert('เกิดข้อผิดพลาด', 'ไม่สามารถบันทึกข้อมูลได้');
     }
   };
 
-  // ✅ เปิด Modal เพื่อให้ผู้ใช้บันทึกการกินยา - เพิ่มการตั้งค่าเริ่มต้น
   const openModal = (item) => {
     setSelectedItem(item);
     setModalVisible(true);
-    setSideEffects(''); // รีเซ็ตผลข้างเคียง
-    setMedTime(new Date()); // ตั้งเวลาเป็นปัจจุบัน
+    setSideEffects('');
+    setMedTime(new Date());
     setActualTakeTime(new Date().toLocaleTimeString('th-TH', { 
       hour: '2-digit', 
       minute: '2-digit' 
-    })); // แสดงเวลาปัจจุบัน
+    }));
   };
 
-  // ✅ ปิด Modal - เพิ่มการล้างข้อมูล
   const closeModal = () => {
     setModalVisible(false);
     setSelectedItem(null);
@@ -187,7 +229,6 @@ const HomeScreen = ({ navigation }) => {
     setShowTimePicker(false);
   };
 
-  // ✅ ฟังก์ชันยืนยันการทานยา - เพิ่มการส่งข้อมูลผลข้างเคียงและเวลา
   const confirmConsumption = () => {
     if (selectedItem) {
       toggleStatus(selectedItem, sideEffects, actualTakeTime);
@@ -200,18 +241,15 @@ const HomeScreen = ({ navigation }) => {
     closeModal();
   };
 
-  // ✅ ฟังก์ชันเปิด TimePicker
   const showTimePickerModal = () => setShowTimePicker(true);
 
-  // ✅ ฟังก์ชันที่จัดการเมื่อผู้ใช้เลือกเวลา
   const handleTimeChange = (event, selectedDate) => {
-    setShowTimePicker(false); // ปิด picker เสมอ
+    setShowTimePicker(false);
     
     if (selectedDate) {
       const currentTime = selectedDate;
-      setMedTime(currentTime); // อัปเดตเวลา
+      setMedTime(currentTime);
       
-      // ✅ แปลงเป็นรูปแบบที่แสดงผลให้ผู้ใช้เห็น
       const formattedTime = currentTime.toLocaleTimeString('th-TH', { 
         hour: '2-digit', 
         minute: '2-digit' 
@@ -220,8 +258,17 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
-  // ✅ จัดกลุ่มยาโดยแบ่งตามช่วงเวลา
-  const medicationGroups = groupMedicationsByTime(items);
+  // ✅ ใช้รายการที่ผ่านการฟิลเตอร์
+  const filteredItems = getFilteredItems();
+  const medicationGroups = groupMedicationsByTime(filteredItems);
+
+  // ✅ ข้อมูลสำหรับปุ่มฟิลเตอร์
+  const filterOptions = [
+    { key: 'ทั้งหมด', label: 'ทั้งหมด', color: '#4dabf7', icon: 'apps' },
+    { key: 'ไม่มีการบันทึก', label: 'ไม่มีการบันทึก', color: '#ffc107', icon: 'time-outline' },
+    { key: 'กินแล้ว', label: 'กินแล้ว', color: '#28a745', icon: 'checkmark-circle' },
+    { key: 'ยังไม่กิน', label: 'ยังไม่กิน', color: '#dc3545', icon: 'close-circle' },
+  ];
 
   return (
     <ScrollView style={styles.container}>
@@ -258,8 +305,47 @@ const HomeScreen = ({ navigation }) => {
             </Text>
             <Text style={styles.summaryLabel}>ยังไม่กิน</Text>
           </View>
+          <View style={styles.summaryItem}>
+            <Text style={[styles.summaryNumber, { color: '#ffc107' }]}>
+              {items.filter(item => item.status === 'ไม่มีการบันทึก').length}
+            </Text>
+            <Text style={styles.summaryLabel}>ไม่มีการบันทึก</Text>
+          </View>
         </View>
       </View>
+
+      {/* ✅ ส่วนฟิลเตอร์ */}
+      <View style={styles.filterContainer}>
+        <Text style={styles.filterTitle}>🔍 กรองตามสถานะ:</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScrollView}>
+          {filterOptions.map(option => (
+            <FilterButton
+              key={option.key}
+              label={option.label}
+              isActive={activeFilter === option.key}
+              onPress={() => setActiveFilter(option.key)}
+              color={option.color}
+              icon={option.icon}
+            />
+          ))}
+        </ScrollView>
+      </View>
+
+      {/* ✅ แสดงผลลัพธ์การฟิลเตอร์ */}
+      {filteredItems.length === 0 && (
+        <View style={styles.emptyState}>
+          <Ionicons name="search" size={48} color="#ccc" />
+          <Text style={styles.emptyStateText}>
+            ไม่พบรายการยาที่มีสถานะ "{activeFilter}"
+          </Text>
+          <TouchableOpacity 
+            style={styles.resetFilterButton}
+            onPress={() => setActiveFilter('ทั้งหมด')}
+          >
+            <Text style={styles.resetFilterText}>แสดงทั้งหมด</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* รายการยาแบ่งตามช่วงเวลา */}
       {Object.entries(medicationGroups).map(([key, group]) => {
@@ -305,7 +391,7 @@ const HomeScreen = ({ navigation }) => {
         );
       })}
 
-      {/* ✅ Modal สำหรับยืนยันการกินยา - ปรับปรุงใหม่ */}
+      {/* Modal สำหรับยืนยันการกินยา */}
       <Modal visible={modalVisible} animationType="slide" transparent={true}>
         <View style={styles.modalBackground}>
           <View style={styles.modalContent}>
@@ -321,9 +407,12 @@ const HomeScreen = ({ navigation }) => {
                   <Text style={styles.modalDetail}>เวลาที่กำหนด: {selectedItem.time}</Text>
                   <Text style={styles.modalDetail}>ขนาดยา: {selectedItem.dose}</Text>
                   <Text style={styles.modalDetail}>ประเภทยา: {selectedItem.medType}</Text>
+                  <Text style={[styles.modalDetail, { fontWeight: 'bold' }]}>
+                    สถานะปัจจุบัน: {selectedItem.status}
+                  </Text>
                 </View>
 
-                {/* ✅ ส่วนเลือกเวลาที่กินยาจริง */}
+                {/* ส่วนเลือกเวลาที่กินยาจริง */}
                 <View style={styles.inputSection}>
                   <Text style={styles.inputLabel}>⏰ เวลาที่กินยาจริง:</Text>
                   <TouchableOpacity style={styles.timeSelector} onPress={showTimePickerModal}>
@@ -333,7 +422,7 @@ const HomeScreen = ({ navigation }) => {
                   </TouchableOpacity>
                 </View>
 
-                {/* ✅ ช่องกรอกผลข้างเคียง */}
+                {/* ช่องกรอกผลข้างเคียง */}
                 <View style={styles.inputSection}>
                   <Text style={styles.inputLabel}>💊 ผลข้างเคียง (ถ้ามี):</Text>
                   <TextInput
@@ -348,7 +437,7 @@ const HomeScreen = ({ navigation }) => {
                   <Text style={styles.characterCount}>{sideEffects.length}/200</Text>
                 </View>
 
-                {/* ✅ ปุ่มยืนยัน/ยกเลิก */}
+                {/* ปุ่มยืนยัน/ยกเลิก */}
                 <View style={styles.modalButtonRow}>
                   <TouchableOpacity style={styles.cancelBtn} onPress={closeModal}>
                     <Ionicons name="close" size={16} color="#fff" />
@@ -357,9 +446,10 @@ const HomeScreen = ({ navigation }) => {
                   <TouchableOpacity style={styles.confirmBtn} onPress={confirmConsumption}>
                     <Ionicons name="checkmark" size={16} color="#fff" />
                     <Text style={styles.confirmText}>
-                      {selectedItem.status === 'กินแล้ว' ? 'ยกเลิกการกิน' : 'ทานยาแล้ว'}
+                      {selectedItem.status === 'กินแล้ว' ? 'เปลี่ยนสถานะ' : 'บันทึกการกิน'}
                     </Text>
                   </TouchableOpacity>
+
                 </View>
               </>
             )}
@@ -367,7 +457,7 @@ const HomeScreen = ({ navigation }) => {
         </View>
       </Modal>
 
-      {/* ✅ DateTimePicker - แสดงเมื่อต้องการเลือกเวลา */}
+      {/* DateTimePicker */}
       {showTimePicker && (
         <DateTimePicker
           value={medTime}
@@ -481,15 +571,87 @@ const styles = StyleSheet.create({
   },
 
   summaryNumber: {
-    fontSize: 24,
+    fontSize: 20, // ลดขนาดเล็กน้อยเพื่อให้ดูสมดุล
     fontWeight: 'bold',
     color: '#4dabf7',
   },
 
   summaryLabel: {
-    fontSize: 12,
+    fontSize: 11, // ลดขนาดเล็กน้อย
     color: '#666',
     marginTop: 4,
+  },
+
+  // ✅ สไตล์สำหรับส่วนฟิลเตอร์
+  filterContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+
+  filterTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+
+  filterScrollView: {
+    flexDirection: 'row',
+  },
+
+  filterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#e0e0e0',
+    backgroundColor: '#f8f9fa',
+    marginRight: 8,
+    gap: 6,
+  },
+
+  filterButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+  },
+
+  // ✅ สไตล์สำหรับ Empty State
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginBottom: 20,
+  },
+
+  emptyStateText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 16,
+    marginBottom: 20,
+  },
+
+  resetFilterButton: {
+    backgroundColor: '#4dabf7',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+  },
+
+  resetFilterText: {
+    color: '#fff',
+    fontWeight: '600',
   },
 
   timeGroup: {
@@ -804,12 +966,30 @@ const styles = StyleSheet.create({
     gap: 6,
   },
 
+  //ปุ่มไม่ทานยา
+    dontconfirmBtn: { 
+    flex: 1,
+    backgroundColor: '#f74d4dff', 
+    padding: 12, 
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+
   cancelText: { 
     color: '#fff',
     fontWeight: '600',
   },
 
   confirmText: { 
+    color: '#fff',
+    fontWeight: '600',
+  },
+
+  //ปุ่มไม่ทานยา
+    dontconfirmText: { 
     color: '#fff',
     fontWeight: '600',
   },

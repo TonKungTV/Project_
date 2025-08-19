@@ -25,9 +25,9 @@ const StatusBadge = ({ status, onPress }) => {
   };
 
   const config = getStatusConfig(status);
-  
+
   return (
-    <TouchableOpacity 
+    <TouchableOpacity
       style={[styles.statusBadge, { backgroundColor: config.color }]}
       onPress={onPress}
     >
@@ -95,7 +95,8 @@ const MedicationDetailScreen = ({ route, navigation }) => {
               console.error('Error deleting medication:', error);
               Alert.alert('ไม่สามารถลบรายการยาได้');
             }
-          },
+          }
+
         },
       ],
       { cancelable: false }
@@ -160,7 +161,7 @@ const MedicationDetailScreen = ({ route, navigation }) => {
 
       {/* ปุ่มแก้ไข */}
       <View style={styles.buttonContainer}>
-      {/* <View style={{ marginTop: 20 }}> */}
+        {/* <View style={{ marginTop: 20 }}> */}
         <TouchableOpacity
           style={styles.editButton}
           onPress={() => navigation.navigate('EditMedicationScreen', { id: medication.MedicationID })}
@@ -201,7 +202,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     color: '#333',
   },
-buttonContainer: {
+  buttonContainer: {
     flexDirection: 'row', // จัดเรียงปุ่มในแถว
     justifyContent: 'space-beween', // ให้ปุ่มอยู่ห่างกัน
     marginTop: 20, // ช่องว่างจากด้านบน

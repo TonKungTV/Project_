@@ -41,7 +41,7 @@ const AddMedicationScreen = ({ navigation }) => {
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
   const [frequency, setFrequency] = useState('every_day');
-  const [frequencyID, setFrequencyID] = useState(1);
+  const [frequencyID, setFrequencyID] = useState();
   const [isFrequencyWithCustomTime, setIsFrequencyWithCustomTime] = useState(false);
   const [selectedWeekDays, setSelectedWeekDays] = useState([]);  // สำหรับเลือกวันในสัปดาห์
   const [cycleUseDays, setCycleUseDays] = useState('');  // สำหรับกรอกวันใช้ยา
@@ -53,6 +53,7 @@ const AddMedicationScreen = ({ navigation }) => {
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
   const [selectedTime, setSelectedTime] = useState(null);
   const [customFrequencyTime, setCustomFrequencyTime] = useState('');
+  const [CustomValue, setCustomValue] = useState('');
 
 
   const [groups, setGroups] = useState([]);
@@ -138,6 +139,7 @@ const AddMedicationScreen = ({ navigation }) => {
     console.log('cycleRestDays: ', cycleRestDays);
     console.log('customFrequencyTime: ', customFrequencyTime);
     console.log('frequency: ', frequency);
+    console.log('CustomValue: ', CustomValue);
 
     if (!name || !typeID || selectedTimeIds.length === 0 || !groupID) {
       Alert.alert('กรุณากรอกข้อมูลให้ครบ');
@@ -206,7 +208,7 @@ const AddMedicationScreen = ({ navigation }) => {
       PrePostTime: prePostMinutes,
       StartDate: startDate.toISOString().split('T')[0],
       EndDate: endDate.toISOString().split('T')[0],
-      CustomValue: customFrequencyTime,
+      CustomValue: CustomValue,
       FrequencyID,  // ส่ง FrequencyID ที่ได้จากการคำนวณ
       ...defaultTimeFields,
       SelectedWeekDays: selectedWeekDays,  // ส่งวันที่เจาะจงของสัปดาห์
@@ -322,8 +324,8 @@ const AddMedicationScreen = ({ navigation }) => {
           <Text style={styles.label}>กรอกจำนวน</Text>
           <TextInput
             style={styles.input}
-            value={customFrequencyTime}
-            onChangeText={setCustomFrequencyTime}
+            value={CustomValue}
+            onChangeText={setCustomValue}
             keyboardType="numeric"
             placeholder="กรอกจำนวน"
           />
