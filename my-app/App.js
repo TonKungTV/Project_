@@ -12,7 +12,7 @@ import RegisterScreen from './screens/RegisterScreen';
 import DailyReminderScreen from './screens/DailyReminderScreen';
 import Home from './screens/Home';
 import SettingsScreen from './screens/SettingsScreen';
-// import SettingsScreen from './screens/SettingsScreen';
+import ProfileScreen from './screens/ProfileScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -30,6 +30,7 @@ export default function App() {
         <Stack.Screen name="MedicationDetailScreen" component={MedicationDetailScreen} options={{ title: 'รายละเอียดยา' }} />
         <Stack.Screen name="DailyReminderScreen" component={DailyReminderScreen} options={{ title: 'รายการยาที่ต้องกิน' }} />
         <Stack.Screen name="SettingsScreen" component={SettingsScreen} options={{ title: 'ตั้งค่าผู้ใช้' }} />
+        <Stack.Screen name="ProfileScreen" component={ProfileScreen} options={{ title: 'ข้อมูลส่วนตัว' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
