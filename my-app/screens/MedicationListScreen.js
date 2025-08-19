@@ -148,6 +148,7 @@
 //   },
 // });
 
+// จัดดีไซน์ใหม่
 import React, { useEffect, useState } from 'react';
 import {
   View,
@@ -204,6 +205,29 @@ const MedicationCard = ({ item, onPress }) => {
         <Text style={styles.medicationGroup}>กลุ่มโรค: {item.GroupName || 'ไม่ระบุ'}</Text>
       </View>
 
+      {/* ปุ่มแก้ไขและลบ */}
+      {/* <View style={styles.actionButtons}>
+        <TouchableOpacity
+          style={[styles.actionButton, styles.editButton]}
+          onPress={(e) => {
+            e.stopPropagation();
+            onEdit(item);
+          }}
+        >
+          <Ionicons name="pencil" size={16} color="#2196f3" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionButton, styles.deleteButton]}
+          onPress={(e) => {
+            e.stopPropagation();
+            onDelete(item);
+          }}
+        >
+          <Ionicons name="trash" size={16} color="#f44336" />
+        </TouchableOpacity>
+      </View> */}
+
+
       {/*  ลูกศรชี้ไปทางขวา */}
       <View style={styles.arrowContainer}>
         <Ionicons name="chevron-forward" size={20} color="#999" />
@@ -215,9 +239,9 @@ const MedicationCard = ({ item, onPress }) => {
 //  Component สำหรับหน้าเปล่า (Empty State)
 const EmptyState = ({ onAddMedication }) => (
   <View style={styles.emptyContainer}>
-    {/* <View style={styles.emptyIconContainer}>
+    <View style={styles.emptyIconContainer}>
       <Ionicons name="medical" size={60} color="#4dabf7" />
-    </View> */}
+    </View>
     <Text style={styles.emptyTitle}>ไม่มีรายการยา</Text>
     <Text style={styles.emptySubtitle}>เพิ่มรายการยาของคุณ กดปุ่ม +</Text>
   </View>
