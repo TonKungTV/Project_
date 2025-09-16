@@ -145,17 +145,6 @@ const MedicationListScreen = ({ navigation }) => {
       {/*  ตั้งค่า StatusBar ให้เป็นสีฟ้า */}
       <StatusBar barStyle="light-content" backgroundColor="#4dabf7" />
       
-      {/* Header แบบใหม่ คล้ายรูป */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton} 
-          onPress={() => navigation.goBack()}
-        >
-          <Ionicons name="arrow-back" size={24} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>รายการยา</Text>
-        <View style={styles.headerRight} />
-      </View>
 
       {/*  Loading state */}
       {isLoading ? (

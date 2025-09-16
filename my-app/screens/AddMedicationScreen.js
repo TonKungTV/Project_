@@ -64,7 +64,7 @@ const AddMedicationScreen = ({ navigation }) => {
     fetch(`${BASE_URL}/api/groups`)
       .then(res => res.json())
       .then(data => {
-        console.log("Groups data:", data);  // ตรวจสอบข้อมูลที่ได้รับจาก API
+        console.log("Groups data: ", data);  // ตรวจสอบข้อมูลที่ได้รับจาก API
         setGroups(data);
       })
       .catch(err => console.error('Error fetching groups:', err));

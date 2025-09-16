@@ -21,7 +21,7 @@ const MealTimes = ({ navigation }) => {
     // ดึงข้อมูลเวลาอาหารจาก Backend (โดยใช้ fetch)
     
     useEffect(() => {
-  fetch(`${BASE_URL}/api/meal-times${id}`) // เปลี่ยน URL ให้ถูกต้อง
+  fetch(`${BASE_URL}/api/meal-times`) // เปลี่ยน URL ให้ถูกต้อง
     .then(response => {
       if (!response.ok) {
         throw new Error('Failed to fetch meal times');  // เพิ่มการตรวจสอบ error

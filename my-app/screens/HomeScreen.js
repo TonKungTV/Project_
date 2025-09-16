@@ -153,7 +153,7 @@ const HomeScreen = ({ navigation }) => {
         medType: r.TypeName || '-',
         importance: r.PriorityLabel || 'ปกติ',
         // ✅ ปรับปรุงการกำหนดสถานะ
-        status: r.Status || 'ไม่มีการบันทึก',
+        status: r.Status || 'ยังไม่บันทึก',
       }));
       setItems(mapped);
     } catch (error) {
