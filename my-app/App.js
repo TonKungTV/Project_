@@ -14,6 +14,7 @@ import Home from './screens/Home';
 import SettingsScreen from './screens/SettingsScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import MealTimes from './screens/MealTimes';
+import EditMedicationScreen from './screens/EditMedicationScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -27,12 +28,13 @@ export default function App() {
         <Stack.Screen name="LoginScreen" component={LoginScreen} options={{ title: 'Login' }} />
         <Stack.Screen name="RegisterScreen" component={RegisterScreen} options={{ title: 'Register' }} />
         <Stack.Screen name="MedicationListScreen" component={MedicationListScreen} options={{ title: 'รายการยา' }} />
-        <Stack.Screen name="AddMedication" component={AddMedicationScreen} options={{ title: 'เพิ่มยา' }} />
+        <Stack.Screen name="AddMedicationScreen" component={AddMedicationScreen} options={{ title: 'เพิ่มยา' }} />
         <Stack.Screen name="MedicationDetailScreen" component={MedicationDetailScreen} options={{ title: 'รายละเอียดยา' }} />
         <Stack.Screen name="DailyReminderScreen" component={DailyReminderScreen} options={{ title: 'รายการยาที่ต้องกิน' }} />
         <Stack.Screen name="SettingsScreen" component={SettingsScreen} options={{ title: 'ตั้งค่าผู้ใช้' }} />
         <Stack.Screen name="ProfileScreen" component={ProfileScreen} options={{ title: 'ข้อมูลส่วนตัว' }} />
         <Stack.Screen name="MealTimes" component={MealTimes} options={{ title: 'ตั้งค่าเวลามื้ออาหาร' }} />
+        <Stack.Screen name="EditMedicationScreen" component={EditMedicationScreen} options={{ title: 'แก้ไขยา' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

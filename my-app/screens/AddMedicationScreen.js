@@ -22,8 +22,8 @@ const frequencyOptions = [
   { label: 'กินเมื่อมีอาการ', value: 'on_demand', id: 8 }
 ];
 
-
 const AddMedicationScreen = ({ navigation }) => {
+  // ...existing state...
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
   const [groupID, setGroupID] = useState('');
@@ -43,11 +43,11 @@ const AddMedicationScreen = ({ navigation }) => {
   const [frequency, setFrequency] = useState('every_day');
   const [frequencyID, setFrequencyID] = useState();
   const [isFrequencyWithCustomTime, setIsFrequencyWithCustomTime] = useState(false);
-  const [selectedWeekDays, setSelectedWeekDays] = useState([]);  // สำหรับเลือกวันในสัปดาห์
+  const [selectedWeekDays, setSelectedWeekDays] = useState([]);  // 1=Mon .. 7=Sun
   const [cycleUseDays, setCycleUseDays] = useState('');  // สำหรับกรอกวันใช้ยา
   const [cycleRestDays, setCycleRestDays] = useState('');  // สำหรับกรอกวันหยุดพัก
-  const [selectedMonthDay, setSelectedMonthDay] = useState(new Date());  // สำหรับเลือกวันที่เจาะจงของเดือน
-  const [selectedDays, setSelectedDays] = useState({});
+  // เก็บวันที่ที่เลือกในปฏิทินเป็น object สำหรับ markedDates
+  const [selectedMonthDates, setSelectedMonthDates] = useState({});  // { '2025-09-17': {selected:true,...}, ... }
   const [mealTime, setMealTime] = useState({});
   const [time, setTime] = useState({});
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
@@ -55,30 +55,27 @@ const AddMedicationScreen = ({ navigation }) => {
   const [customFrequencyTime, setCustomFrequencyTime] = useState('');
   const [CustomValue, setCustomValue] = useState('');
 
-
   const [groups, setGroups] = useState([]);
   const [units, setUnits] = useState([]);
 
   useEffect(() => {
-    // ดึงข้อมูลจากฐานข้อมูลสำหรับ GroupID
+    // ...existing fetches...
     fetch(`${BASE_URL}/api/groups`)
       .then(res => res.json())
       .then(data => {
-        console.log("Groups data: ", data);  // ตรวจสอบข้อมูลที่ได้รับจาก API
+        console.log("Groups data: ", data);
         setGroups(data);
       })
       .catch(err => console.error('Error fetching groups:', err));
 
-    // ดึงข้อมูลจากฐานข้อมูลสำหรับ UnitID
     fetch(`${BASE_URL}/api/units`)
       .then(res => res.json())
       .then(data => {
-        console.log("Units data:", data);  // ตรวจสอบข้อมูลที่ได้รับจาก API
+        console.log("Units data:", data);
         setUnits(data);
       })
       .catch(err => console.error('Error fetching units:', err));
 
-    // ดึงเวลาทานยาจาก backend
     fetch(`${BASE_URL}/api/userdefaultmealtime`)
       .then(res => res.json())
       .then(data => setDefaultTimes(data))
@@ -94,18 +91,10 @@ const AddMedicationScreen = ({ navigation }) => {
       default: return 'ไม่ระบุ';
     }
   };
-  const showDatePicker = () => {
-    setDatePickerVisibility(true);
-  };
 
-  const hideDatePicker = () => {
-    setDatePickerVisibility(false);
-  };
-
-  const handleConfirm = (time) => {
-    setSelectedTime(time);
-    hideDatePicker();
-  };
+  const showDatePicker = () => setDatePickerVisibility(true);
+  const hideDatePicker = () => setDatePickerVisibility(false);
+  const handleConfirm = (time) => { setSelectedTime(time); hideDatePicker(); };
 
   const toggleTime = (id) => {
     setSelectedTimeIds(prev =>
@@ -113,43 +102,30 @@ const AddMedicationScreen = ({ navigation }) => {
     );
   };
 
-
-  // ฟังก์ชันในการเลือกหลายวันจากปฏิทิน
-  const onDayPress = (day) => {
-    const newSelectedDays = { ...selectedDays };
-    const date = day.dateString; // dateString เช่น '2025-08-17'
-    if (newSelectedDays[date]) {
-      delete newSelectedDays[date]; // ลบวันที่ที่เลือกแล้ว
-    } else {
-      newSelectedDays[date] = { selected: true, selectedColor: 'blue' }; // เพิ่มวันที่ที่เลือก
-    }
-    setSelectedDays(newSelectedDays); // update ค่า selectedDays
+  // Calendar multi-select (สำหรับ monthly) - toggle date selection
+  const onMonthDayPress = (day) => {
+    const dateStr = day.dateString; // 'YYYY-MM-DD'
+    setSelectedMonthDates(prev => {
+      const copy = { ...prev };
+      if (copy[dateStr]) {
+        delete copy[dateStr];
+      } else {
+        copy[dateStr] = { selected: true, selectedColor: '#4da6ff' };
+      }
+      return copy;
+    });
   };
 
   const handleSave = async () => {
-    console.log('Name:', name);
-    console.log('TypeID:', typeID);
-    console.log('SelectedTimeIds:', selectedTimeIds);
-    console.log('selectedDays:', selectedDays);
-    console.log('selectedWeekDays:', selectedWeekDays);
-    console.log('selectedMonthDay:', selectedMonthDay);
-    console.log('GroupID:', groupID);
-    console.log('UnitID: ', unitID);
-    console.log('cycleUseDays:', cycleUseDays);
-    console.log('cycleRestDays: ', cycleRestDays);
-    console.log('customFrequencyTime: ', customFrequencyTime);
-    console.log('frequency: ', frequency);
-    console.log('CustomValue: ', CustomValue);
-
+    // ...existing validations...
     if (!name || !typeID || selectedTimeIds.length === 0 || !groupID) {
       Alert.alert('กรุณากรอกข้อมูลให้ครบ');
       return;
     }
     if ((usageMealID === 2 || usageMealID === 3) && !prePostTime) {
-    Alert.alert('กรุณาเลือกเวลาก่อน/หลังอาหาร');
-    return;
-  }
-    // ถ้าเลือกก่อน/หลังอาหาร ต้องเลือกนาทีด้วย  
+      Alert.alert('กรุณาเลือกเวลาก่อน/หลังอาหาร');
+      return;
+    }
     if ((usageMealID === 2 || usageMealID === 3)) {
       const needMinutes =
         prePostTime === null ||
@@ -161,7 +137,24 @@ const AddMedicationScreen = ({ navigation }) => {
       }
     }
 
-    // ✅ ดึง userId จาก AsyncStorage
+    // frequency-specific validations
+    if (frequency === 'weekly' && selectedWeekDays.length === 0) {
+      Alert.alert('โปรดเลือกวันในสัปดาห์อย่างน้อย 1 วัน');
+      return;
+    }
+    if (frequency === 'monthly' && Object.keys(selectedMonthDates).length === 0) {
+      Alert.alert('โปรดเลือกวันที่ของเดือนอย่างน้อย 1 วัน');
+      return;
+    }
+    if ((frequency === 'every_X_days' || frequency === 'every_X_hours' || frequency === 'every_X_minutes') && (!CustomValue || isNaN(parseInt(CustomValue, 10)))) {
+      Alert.alert('โปรดกรอกจำนวนสำหรับความถี่แบบกำหนดเอง');
+      return;
+    }
+    if (frequency === 'cycle' && (!cycleUseDays || !cycleRestDays || isNaN(parseInt(cycleUseDays, 10)) || isNaN(parseInt(cycleRestDays, 10)))) {
+      Alert.alert('โปรดกรอกจำนวนวันสำหรับวงจรการใช้/หยุดพัก');
+      return;
+    }
+
     const userIdStr = await AsyncStorage.getItem('userId');
     const userId = userIdStr ? parseInt(userIdStr, 10) : null;
     if (!userId) {
@@ -175,23 +168,25 @@ const AddMedicationScreen = ({ navigation }) => {
       defaultTimeFields[`DefaultTime_ID_${index + 1}`] = id;
     });
 
-    // กำหนด FrequencyID จาก frequencyOptions
     const selectedFrequency = frequencyOptions.find(option => option.value === frequency);
     const FrequencyID = selectedFrequency ? selectedFrequency.id : null;
-
-    // ตรวจสอบว่า FrequencyID ถูกกำหนดหรือไม่
     if (!FrequencyID) {
       console.error('❌ FrequencyID is not defined');
       return;
     }
-    
-    // แปลง PrePostTime เป็นตัวเลขนาทีที่แน่นอน
+
     const prePostMinutes =
       (usageMealID === 2 || usageMealID === 3)
         ? (prePostTime === 'custom'
           ? parseInt(customTime, 10)
           : prePostTime)
         : null;
+
+    // สร้าง array ของวันที่ของเดือนจาก selectedMonthDates (unique day numbers)
+    const monthDayNumbers = Object.keys(selectedMonthDates)
+      .map(d => new Date(d).getDate())
+      .filter(n => Number.isFinite(n));
+    const uniqueMonthDays = Array.from(new Set(monthDayNumbers)).sort((a,b) => a-b);
 
     const medicationData = {
       UserID: userId,
@@ -202,23 +197,23 @@ const AddMedicationScreen = ({ navigation }) => {
       Dosage: dosage ? parseInt(dosage, 10) : null,
       UnitID: unitID ? parseInt(unitID, 10) : null,
       UsageMealID: usageMealID ?? null,
-      Priority: priority === 'สูง' ? 2 : 1, // ถ้าตาราง priority: 1=ปกติ, 2=สำคัญ/สูง
+      Priority: priority === 'สูง' ? 2 : 1,
       Frequency: frequency,
-      PrePostTime: prePostTime === 'custom' ? (customTime ? parseInt(customTime, 10) : null) : prePostTime,
       PrePostTime: prePostMinutes,
       StartDate: startDate.toISOString().split('T')[0],
       EndDate: endDate.toISOString().split('T')[0],
-      CustomValue: CustomValue,
-      FrequencyID,  // ส่ง FrequencyID ที่ได้จากการคำนวณ
+      CustomValue: CustomValue || null,
+      FrequencyID,
       ...defaultTimeFields,
-      SelectedWeekDays: selectedWeekDays,  // ส่งวันที่เจาะจงของสัปดาห์
-      CycleUseDays: cycleUseDays,  // จำนวนวันที่ใช้ยา
-      CycleRestDays: cycleRestDays,  // จำนวนวันที่หยุดพัก
-      SelectedMonthDay: selectedMonthDay.getDate(),  // วันที่เลือกในเดือน
-      SelectedDays: Object.keys(selectedDays),  // วันที่ที่เลือกจากปฏิทิน
+      WeekDays: selectedWeekDays.length ? selectedWeekDays : null, // สำหรับ weekly (array of 1..7)
+      MonthDays: uniqueMonthDays.length ? uniqueMonthDays : null,  // สำหรับ monthly -> ส่งเป็น array ของตัวเลขวันที่ในเดือน
+      Cycle_Use_Days: cycleUseDays ? parseInt(cycleUseDays, 10) : null,
+      Cycle_Rest_Days: cycleRestDays ? parseInt(cycleRestDays, 10) : null,
+      OnDemand: frequency === 'on_demand' ? true : false
     };
 
     try {
+      console.log('🔔 medicationData ->', medicationData);
       const response = await fetch(`${BASE_URL}/api/medications`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -239,30 +234,24 @@ const AddMedicationScreen = ({ navigation }) => {
     }
   };
 
-
   // Logic สำหรับการแสดงผล input เวลา/จำนวนสำหรับ "ทุก X วัน" หรือ "ทุก X ชั่วโมง"
   const handleFrequencyChange = (value) => {
     setFrequency(value);
     if (value === 'every_X_days' || value === 'every_X_hours' || value === 'every_X_minutes') {
-      setIsFrequencyWithCustomTime(true);  // แสดงช่องกรอกตัวเลข
-    } else if (value === 'weekly') {
-      setIsFrequencyWithCustomTime(false);  // แสดงการเลือกวันในสัปดาห์
-    } else if (value === 'monthly') {
-      setIsFrequencyWithCustomTime(false);  // แสดงการเลือกวันที่ในเดือน
-    } else if (value === 'cycle') {
-      setIsFrequencyWithCustomTime(false);  // แสดงช่องกรอก X วันใช้ X วันหยุดพัก
+      setIsFrequencyWithCustomTime(true);
     } else {
-      setIsFrequencyWithCustomTime(false);  // ซ่อนช่องกรอกตัวเลข
+      setIsFrequencyWithCustomTime(false);
     }
   };
 
   return (
     <ScrollView style={styles.container}>
+      {/* ...existing UI fields (name, group, note, type, dosage, unit) ... */}
       <Text style={styles.label}>ชื่อยา</Text>
       <TextInput style={styles.input} value={name} onChangeText={setName} />
 
       <Text style={styles.label}>กลุ่มโรค</Text>
-      <Picker selectedValue={groupID} onValueChange={setGroupID}>
+      <Picker selectedValue={groupID} onValueChange={setGroupID} mode="dropdown">
         {groups.length > 0 ? (
           groups.map(group => (
             <Picker.Item key={group.GroupID} label={group.GroupName} value={group.GroupID} />
@@ -297,8 +286,9 @@ const AddMedicationScreen = ({ navigation }) => {
           keyboardType="numeric"
         />
       </View>
+
       <Text style={styles.label}>หน่วยยา</Text>
-      <Picker selectedValue={unitID} onValueChange={setUnitID}>
+      <Picker selectedValue={unitID} onValueChange={setUnitID} mode="dropdown">
         {units.length > 0 ? (
           units.map(unit => (
             <Picker.Item key={unit.UnitID} label={unit.DosageType} value={unit.UnitID} />
@@ -311,14 +301,14 @@ const AddMedicationScreen = ({ navigation }) => {
       <Text style={styles.label}>ความถี่</Text>
       <Picker
         selectedValue={frequency}
-        onValueChange={handleFrequencyChange}  // เปลี่ยนค่าเมื่อเลือกความถี่
+        onValueChange={handleFrequencyChange}
+        mode="dropdown"
       >
         {frequencyOptions.map((option) => (
           <Picker.Item key={option.value} label={option.label} value={option.value} />
         ))}
       </Picker>
 
-      {/* กรอกตัวเลขสำหรับ "ทุก X วัน" หรือ "ทุก X ชั่วโมง" */}
       {(isFrequencyWithCustomTime) && (
         <View>
           <Text style={styles.label}>กรอกจำนวน</Text>
@@ -332,7 +322,6 @@ const AddMedicationScreen = ({ navigation }) => {
         </View>
       )}
 
-      {/* เลือกวันในสัปดาห์ */}
       {frequency === 'weekly' && (
         <View>
           <Text style={styles.label}>เลือกวันในสัปดาห์</Text>
@@ -353,7 +342,6 @@ const AddMedicationScreen = ({ navigation }) => {
         </View>
       )}
 
-      {/* สำหรับ X วันใช้ X วันหยุดพัก */}
       {frequency === 'cycle' && (
         <View>
           <Text style={styles.label}>วันใช้ยา</Text>
@@ -375,33 +363,33 @@ const AddMedicationScreen = ({ navigation }) => {
         </View>
       )}
 
-      {/* สำหรับเลือกวันที่เจาะจงของเดือน */}
       {frequency === 'monthly' && (
         <View>
-          <Text style={styles.label}>เลือกวันที่เจาะจงของเดือน</Text>
+          <Text style={styles.label}>เลือกวันที่ของเดือน (แตะเพื่อเลือก/ยกเลิก)</Text>
           <Calendar
-            // การตั้งค่าปฏิทิน
-            markedDates={selectedDays}  // ใช้ข้อมูลวันที่เลือกเพื่อทำเครื่องหมาย
-            onDayPress={onDayPress}  // ฟังก์ชันที่ถูกเรียกเมื่อเลือกวัน
-            monthFormat={'yyyy MM'}  // รูปแบบเดือนที่แสดง
-            markingType={'multi-dot'}  // การแสดงวันที่หลายวัน
+            markedDates={selectedMonthDates}
+            onDayPress={onMonthDayPress}
+            monthFormat={'yyyy MM'}
+            markingType={'simple'}
           />
+          <Text style={{ marginTop: 8 }}>
+            {Object.keys(selectedMonthDates).length > 0
+              ? `วันที่ที่เลือก: ${Array.from(new Set(Object.keys(selectedMonthDates).map(d => new Date(d).getDate()))).sort((a,b) => a-b).join(', ')}`
+              : 'ยังไม่ได้เลือกวันที่'}
+          </Text>
         </View>
       )}
 
+      {/* ...remaining UI: usage meal, pre/post time, default times, date pickers, priority, save/cancel buttons ... */}
       <Text style={styles.label}>วิธีกินยา</Text>
       <View style={styles.toggleRow}>
-        {[
-          { label: 'พร้อมอาหาร', id: 1 },
-          { label: 'ก่อนอาหาร', id: 2 },
-          { label: 'หลังอาหาร', id: 3 },
-        ].map(opt => (
+        {[{ label: 'พร้อมอาหาร', id: 1 }, { label: 'ก่อนอาหาร', id: 2 }, { label: 'หลังอาหาร', id: 3 }].map(opt => (
           <TouchableOpacity
             key={opt.id}
             style={[styles.toggleButton, usageMealID === opt.id && styles.toggleActive]}
             onPress={() => {
               setUsageMealID(opt.id);
-              setPrePostTime(null); // reset เวลาเมื่อเปลี่ยนประเภท
+              setPrePostTime(null);
               setCustomTime('');
             }}
           >
@@ -418,10 +406,7 @@ const AddMedicationScreen = ({ navigation }) => {
               <TouchableOpacity
                 key={min}
                 style={[styles.toggleButton, prePostTime === min && styles.toggleActive]}
-                onPress={() => {
-                  setPrePostTime(min);
-                  setCustomTime('');
-                }}
+                onPress={() => { setPrePostTime(min); setCustomTime(''); }}
               >
                 <Text>{min} นาที</Text>
               </TouchableOpacity>
@@ -451,15 +436,12 @@ const AddMedicationScreen = ({ navigation }) => {
         <TouchableOpacity
           key={time.DefaultTime_ID}
           onPress={() => toggleTime(time.DefaultTime_ID)}
-          style={[
-            styles.timeButton,
-            selectedTimeIds.includes(time.DefaultTime_ID) && styles.selected
-          ]}
+          style={[ styles.timeButton, selectedTimeIds.includes(time.DefaultTime_ID) && styles.selected ]}
         >
           <Text>{`${convertMeal(time.MealID)} (${time.Time.slice(0, 5)})`}</Text>
         </TouchableOpacity>
       ))}
-      
+
       <Text style={styles.label}>ระยะเวลา</Text>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
         <Button title={`เริ่มต้น ${startDate.toLocaleDateString('th-TH')}`} onPress={() => setShowStartPicker(true)} />
@@ -472,24 +454,19 @@ const AddMedicationScreen = ({ navigation }) => {
           mode="date"
           onChange={(e, selectedDate) => {
             setShowStartPicker(false);
-            if (selectedDate) {
-              setStartDate(selectedDate);
-            }
+            if (selectedDate) setStartDate(selectedDate);
           }}
         />
       )}
       {showEndPicker && (
         <DateTimePicker
-  value={endDate}
-  mode="date"
-  onChange={(e, selectedDate) => {
-    setShowEndPicker(false);
-    if (selectedDate) {
-      setEndDate(selectedDate);
-    }
-  }}
-/>
-
+          value={endDate}
+          mode="date"
+          onChange={(e, selectedDate) => {
+            setShowEndPicker(false);
+            if (selectedDate) setEndDate(selectedDate);
+          }}
+        />
       )}
 
       <Text style={styles.sectionLabel}>ความสำคัญ</Text>
@@ -520,6 +497,7 @@ const AddMedicationScreen = ({ navigation }) => {
   );
 };
 
+// ...existing styles...
 const styles = StyleSheet.create({
   container: { padding: 20, backgroundColor: '#fff' },
   label: { fontWeight: 'bold', marginBottom: 6, marginTop: 15 },
@@ -566,7 +544,6 @@ const styles = StyleSheet.create({
     marginBottom: 60,
   },
   sectionLabel: { fontWeight: 'bold', marginTop: 15, marginBottom: 8 },
-  toggleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   priorityButton: {
     flex: 1,
     padding: 12,
@@ -594,6 +571,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 });
-
-
+// ...existing code...
 export default AddMedicationScreen;
