@@ -468,8 +468,8 @@ app.get('/api/medications/:id', (req, res) => {
     const row = result[0];
     // parse stored JSON fields
     let weekDays = null, monthDays = null;
-    try { weekDays = row.WeekDays ? JSON.parse(row.WeekDays) : null; } catch(e) { weekDays = null; }
-    try { monthDays = row.MonthDays ? JSON.parse(row.MonthDays) : null; } catch(e) { monthDays = null; }
+    try { weekDays = row.WeekDays ? JSON.parse(row.WeekDays) : null; } catch (e) { weekDays = null; }
+    try { monthDays = row.MonthDays ? JSON.parse(row.MonthDays) : null; } catch (e) { monthDays = null; }
     row.WeekDays = weekDays;
     row.MonthDays = monthDays;
     row.OnDemand = row.OnDemand === 1;
@@ -632,18 +632,51 @@ app.get('/api/reminders/today', (req, res) => {
     const calculateMedicationSchedule = (frequencyValue, startDateStr, endDateStr, customValue, weekDaysArr, monthDaysArr, cycleUse, cycleRest, onDemand) => {
       if (onDemand) return []; // do not pre-create schedules for on-demand
       const dates = [];
-      const start = new Date(startDateStr);
-      const end = new Date(endDateStr);
-      if (isNaN(start) || isNaN(end) || start > end) return [];
+
+      // parse YYYY-MM-DD into local-date to avoid timezone shifts
+      const toLocalDate = (str) => {
+        if (!str) return null;
+        const parts = String(str).split('-').map(n => parseInt(n, 10));
+        if (parts.length >= 3 && parts.every(Number.isFinite)) {
+          return new Date(parts[0], parts[1] - 1, parts[2]);
+        }
+        const d = new Date(str);
+        return isNaN(d) ? null : d;
+      };
+
+      // format Date -> local YYYY-MM-DD (avoid toISOString())
+      const formatLocalDate = (d) => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+      };
+
+      const start = toLocalDate(startDateStr);
+      const end = toLocalDate(endDateStr);
+      if (!start || !end || isNaN(start) || isNaN(end) || start > end) return [];
 
       // normalize weekDays to JS getDay() values (0=Sun..6=Sat)
       let jsWeekDays = null;
       if (Array.isArray(weekDaysArr) && weekDaysArr.length > 0) {
-        jsWeekDays = weekDaysArr.map(d => {
-          const n = parseInt(d, 10);
-          if (isNaN(n)) return null;
-          return n % 7; // 7 -> 0 (Sun), 1 -> 1 (Mon) ... 6 -> 6 (Sat)
-        }).filter(v => v !== null);
+        // Accept many possible encodings:
+        // - JS getDay() values (0..6)
+        // - 1=Mon..7=Sun (frontend used this previously)
+        // - 1=Sun..7=Sat (other possible)
+        const nums = weekDaysArr.map(d => parseInt(d, 10)).filter(Number.isFinite);
+        const min = Math.min(...nums);
+        const max = Math.max(...nums);
+
+        if (min >= 0 && max <= 6) {
+          // already JS getDay format
+          jsWeekDays = Array.from(new Set(nums));
+        } else if (min >= 1 && max <= 7) {
+          // likely 1=Mon..7=Sun (frontend). Map 7->0, others keep same:
+          jsWeekDays = Array.from(new Set(nums.map(n => (n % 7))));
+        } else {
+          // fallback: try modulo 7
+          jsWeekDays = Array.from(new Set(nums.map(n => (n % 7))));
+        }
       }
 
       // monthDaysArr expected as numbers 1..31
@@ -680,6 +713,7 @@ app.get('/api/reminders/today', (req, res) => {
           } else {
             const dayNum = parseInt(customValue, 10);
             if (isNaN(dayNum) || dayNum < 1 || dayNum > 31) return [];
+            // iterate month by month using local dates
             let cursor = new Date(start.getFullYear(), start.getMonth(), dayNum);
             if (cursor < start) cursor = new Date(start.getFullYear(), start.getMonth() + 1, dayNum);
             while (cursor <= end) {
@@ -719,7 +753,8 @@ app.get('/api/reminders/today', (req, res) => {
           break;
       }
 
-      return dates.map(d => d.toISOString().split('T')[0]);
+      // format as local YYYY-MM-DD to avoid timezone/UTC shift
+      return dates.map(d => formatLocalDate(d));
     };
 
     // insert schedules for each med/defaultTime entry (deduplicated) using idempotent insert
@@ -770,7 +805,9 @@ app.get('/api/reminders/today', (req, res) => {
           console.error('❌ Error refetching reminders:', err2);
           return res.status(500).json({ error: 'Database error' });
         }
-        res.json(refreshed);
+        // ส่งเฉพาะแถวที่มี medicationschedule สำหรับวันนี้
+        const filtered = (refreshed || []).filter(r => r.ScheduleID);
+        res.json(filtered);
       });
     }).catch(errPromise => {
       console.error('❌ Error processing schedule inserts:', errPromise);
@@ -849,7 +886,7 @@ app.patch('/api/user/:id', (req, res) => {
 app.get('/api/meal-times/:id', (req, res) => {
   // ตรวจสอบว่า req.user.id มีค่าหรือไม่
   const userId = req.params.id;
-  
+
   if (!userId) {
     return res.status(400).json({ error: 'User not authenticated or missing user ID' });
   }
@@ -860,7 +897,7 @@ app.get('/api/meal-times/:id', (req, res) => {
       console.error('Database query error:', err);  // Log ข้อผิดพลาดจากฐานข้อมูล
       return res.status(500).json({ error: 'Failed to fetch meal times' });
     }
-    
+
     // ตรวจสอบว่าได้รับข้อมูลจากฐานข้อมูลหรือไม่
     if (results.length === 0) {
       return res.status(404).json({ error: 'No meal times found for this user' });
@@ -871,7 +908,7 @@ app.get('/api/meal-times/:id', (req, res) => {
       acc[curr.MealID] = curr.Time;
       return acc;
     }, {});
-    
+
     // ส่งข้อมูลกลับไปยัง frontend
     res.json(mealTimes);
   });

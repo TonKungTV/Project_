@@ -182,12 +182,21 @@ const AddMedicationScreen = ({ navigation }) => {
           : prePostTime)
         : null;
 
-    // สร้าง array ของวันที่ของเดือนจาก selectedMonthDates (unique day numbers)
+    // parse YYYY-MM-DD โดยตรง (หลีกเลี่ยง new Date(...) ที่ทำให้เกิด timezone shift)
     const monthDayNumbers = Object.keys(selectedMonthDates)
-      .map(d => new Date(d).getDate())
-      .filter(n => Number.isFinite(n));
+      .map(d => {
+        const parts = String(d).split('-');
+        return parts.length >= 3 ? parseInt(parts[2], 10) : NaN;
+      })
+      .filter(Number.isFinite);
     const uniqueMonthDays = Array.from(new Set(monthDayNumbers)).sort((a,b) => a-b);
-
+      const formatLocalDate = (d) => {
+      if (!d) return null;
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
     const medicationData = {
       UserID: userId,
       Name: name,
@@ -200,8 +209,8 @@ const AddMedicationScreen = ({ navigation }) => {
       Priority: priority === 'สูง' ? 2 : 1,
       Frequency: frequency,
       PrePostTime: prePostMinutes,
-      StartDate: startDate.toISOString().split('T')[0],
-      EndDate: endDate.toISOString().split('T')[0],
+      StartDate: formatLocalDate(startDate),
+      EndDate: formatLocalDate(endDate),
       CustomValue: CustomValue || null,
       FrequencyID,
       ...defaultTimeFields,
@@ -222,7 +231,7 @@ const AddMedicationScreen = ({ navigation }) => {
 
       if (response.ok) {
         Alert.alert('เพิ่มยาเรียบร้อย');
-        navigation.goBack();
+        navigation.replace('HomeScreen');
       } else {
         const errMsg = await response.text();
         console.log('Error response:', errMsg);
@@ -325,7 +334,7 @@ const AddMedicationScreen = ({ navigation }) => {
       {frequency === 'weekly' && (
         <View>
           <Text style={styles.label}>เลือกวันในสัปดาห์</Text>
-          {['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์', 'อาทิตย์'].map((day, index) => (
+          {['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์','อาทิตย์'].map((day, index) => (
             <TouchableOpacity
               key={index}
               style={[styles.toggleButton, selectedWeekDays.includes(index + 1) && styles.toggleActive]}

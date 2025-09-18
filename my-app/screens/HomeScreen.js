@@ -137,29 +137,41 @@ const HomeScreen = ({ navigation }) => {
   const [activeFilter, setActiveFilter] = useState('ทั้งหมด');
 
   const load = async () => {
-    const userId = await AsyncStorage.getItem('userId');
-    if (!userId) return;
+  const userId = await AsyncStorage.getItem('userId');
+  if (!userId) return;
 
-    try {
-      const res = await fetch(`${BASE_URL}/api/reminders/today?userId=${userId}`);
-      const data = await res.json();
-      const mapped = data.map((r, i) => ({
-        id: r.ScheduleID || `${r.MedicationID}-${i}`,
-        scheduleId: r.ScheduleID || null,
-        time: `${r.MealName} ${formatHM(r.Time)} น.`,
-        rawTime: r.Time,
-        name: r.name,
-        dose: r.Dosage != null && r.DosageType ? `${r.Dosage} ${r.DosageType}` : '-',
-        medType: r.TypeName || '-',
-        importance: r.PriorityLabel || 'ปกติ',
-        // ✅ ปรับปรุงการกำหนดสถานะ
-        status: r.Status || 'ยังไม่บันทึก',
-      }));
-      setItems(mapped);
-    } catch (error) {
-      console.error('Error loading medications:', error);
-    }
-  };
+  try {
+    const res = await fetch(`${BASE_URL}/api/reminders/today?userId=${userId}`);
+    const data = await res.json();
+
+    // แก้ตรงนี้: แสดงเฉพาะแถวที่มี ScheduleID (คือมี schedule สำหรับวันนี้)
+    const scheduledOnly = Array.isArray(data) ? data.filter(r => r.ScheduleID) : [];
+
+    const mapped = scheduledOnly.map((r, i) => ({
+      id: r.ScheduleID || `${r.MedicationID}-${i}`,
+      scheduleId: r.ScheduleID || null,
+      time: `${r.MealName} ${formatHM(r.Time)} น.`,
+      rawTime: r.Time,
+      name: r.name,
+      dose: r.Dosage != null && r.DosageType ? `${r.Dosage} ${r.DosageType}` : '-',
+      medType: r.TypeName || '-',
+      importance: r.PriorityLabel || 'ปกติ',
+      status: r.Status || 'ยังไม่บันทึก',
+    }));
+    setItems(mapped);
+  } catch (error) {
+    console.error('Error loading medications:', error);
+  }
+};
+
+// ให้ reload ทุกครั้งที่ screen ได้ focus
+useEffect(() => {
+  load();
+  const unsubscribe = navigation.addListener('focus', () => {
+    load();
+  });
+  return unsubscribe;
+}, []);
 
   useEffect(() => {
     load();

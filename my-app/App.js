@@ -28,7 +28,7 @@ export default function App() {
         <Stack.Screen name="LoginScreen" component={LoginScreen} options={{ title: 'Login' }} />
         <Stack.Screen name="RegisterScreen" component={RegisterScreen} options={{ title: 'Register' }} />
         <Stack.Screen name="MedicationListScreen" component={MedicationListScreen} options={{ title: 'รายการยา' }} />
-        <Stack.Screen name="AddMedicationScreen" component={AddMedicationScreen} options={{ title: 'เพิ่มยา' }} />
+        <Stack.Screen name="AddMedication" component={AddMedicationScreen} options={{ title: 'เพิ่มยา' }} />
         <Stack.Screen name="MedicationDetailScreen" component={MedicationDetailScreen} options={{ title: 'รายละเอียดยา' }} />
         <Stack.Screen name="DailyReminderScreen" component={DailyReminderScreen} options={{ title: 'รายการยาที่ต้องกิน' }} />
         <Stack.Screen name="SettingsScreen" component={SettingsScreen} options={{ title: 'ตั้งค่าผู้ใช้' }} />
