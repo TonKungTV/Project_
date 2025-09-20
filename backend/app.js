@@ -481,25 +481,49 @@ app.get('/api/medications/:id', (req, res) => {
 
 // API ดึงข้อมูล GroupID (กลุ่มโรค)
 app.get('/api/groups', (req, res) => {
-  const sql = 'SELECT * FROM diseasegroup';  // ดึงข้อมูลจากตาราง diseasegroup
-  db.query(sql, (err, results) => {
+  const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
+  const sql = userId
+    ? 'SELECT * FROM `diseasegroup` WHERE `UserID` IS NULL OR `UserID` = ? ORDER BY `GroupName`'
+    : 'SELECT * FROM `diseasegroup` ORDER BY `GroupName`';
+  const params = userId ? [userId] : [];
+  db.query(sql, params, (err, rows) => {
     if (err) {
-      console.error('Error fetching groups:', err);
-      return res.status(500).json({ error: 'Database error' });
+      console.error('get groups error', err);
+      return res.status(500).json([]);
     }
-    res.json(results);  // ส่งข้อมูลกลับไปที่ Frontend
+    res.json(rows || []);
   });
 });
 
 // API ดึงข้อมูล UnitID (หน่วยยา)
 app.get('/api/units', (req, res) => {
-  const sql = 'SELECT * FROM dosageunit';  // ดึงข้อมูลจากตาราง dosageunit
-  db.query(sql, (err, results) => {
+  const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
+  const sql = userId
+    ? 'SELECT * FROM dosageunit WHERE UserID IS NULL OR UserID = ? ORDER BY DosageType'
+    : 'SELECT * FROM dosageunit ORDER BY DosageType';
+  const params = userId ? [userId] : [];
+  db.query(sql, params, (err, rows) => {
     if (err) {
-      console.error('Error fetching units:', err);
-      return res.status(500).json({ error: 'Database error' });
+      console.error('get units error', err);
+      return res.status(500).json([]);
     }
-    res.json(results);  // ส่งข้อมูลกลับไปที่ Frontend
+    res.json(rows || []);
+  });
+});
+
+// API ดึงข้อมูล Type (ประเภทยา)
+app.get('/api/types', (req, res) => {
+  const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
+  const sql = userId
+    ? 'SELECT * FROM medicationtype WHERE UserID IS NULL OR UserID = ? ORDER BY TypeName'
+    : 'SELECT * FROM medicationtype ORDER BY TypeName';
+  const params = userId ? [userId] : [];
+  db.query(sql, params, (err, rows) => {
+    if (err) {
+      console.error('get types error', err);
+      return res.status(500).json([]);
+    }
+    res.json(rows || []);
   });
 });
 
@@ -550,6 +574,10 @@ app.get('/api/reminders/today', (req, res) => {
     return res.status(400).json({ error: 'missing userId query param' });
   }
 
+    const dateParam = req.query.date && typeof req.query.date === 'string'
+    ? req.query.date
+    : new Date().toISOString().split('T')[0];
+
   const sql = `
     SELECT
       m.MedicationID,
@@ -585,14 +613,14 @@ app.get('/api/reminders/today', (req, res) => {
     LEFT JOIN medicationschedule s
       ON s.MedicationID = m.MedicationID
      AND s.DefaultTime_ID = udt.DefaultTime_ID
-     AND s.Date = CURDATE()
+     AND s.Date = ?
     LEFT JOIN medicationtype mt ON m.TypeID = mt.TypeID
     LEFT JOIN dosageunit du ON m.UnitID = du.UnitID
     WHERE
       m.UserID = ?
   `;
 
-  db.query(sql, [userId], (err, rows) => {
+  db.query(sql, [dateParam, userId], (err, rows) => {
     if (err) {
       console.error('❌ Error fetching today reminders:', err);
       return res.status(500).json({ error: 'Database error' });
@@ -775,24 +803,35 @@ app.get('/api/reminders/today', (req, res) => {
       if (!dates || dates.length === 0) return;
 
       dates.forEach(dateStr => {
-        // ensure DB has unique index on (MedicationID, DefaultTime_ID, Date)
+      // use backticks for identifiers to avoid reserved-word issues
         const insertSql = `
-          INSERT INTO medicationschedule (MedicationID, DefaultTime_ID, Date, Time, Status)
-          VALUES (?, ?, ?, ?, 'ยังไม่กิน')
-          ON DUPLICATE KEY UPDATE Time = VALUES(Time)
+          INSERT INTO \`medicationschedule\` (\`MedicationID\`, \`DefaultTime_ID\`, \`Date\`, \`Time\`, \`Status\`)
+          VALUES (?, ?, ?, ?, 'รอกิน')
+          ON DUPLICATE KEY UPDATE \`Time\` = VALUES(\`Time\`), \`Status\` = VALUES(\`Status\`)
         `;
         const params = [entry.MedicationID, entry.DefaultTime_ID, dateStr, entry.Time];
 
         insertTasks.push(new Promise((resolve) => {
           db.query(insertSql, params, (err3, result3) => {
+            const dbName = (db && db.config && db.config.database) ? db.config.database : 'unknown_db';
             if (err3) {
-              console.error('❌ Error inserting schedule:', err3);
+              console.error('❌ Error inserting schedule (db=%s):', dbName, err3);
               return resolve();
             }
-            if (result3.affectedRows === 1) {
-              console.log(`Schedule inserted: MedicationID ${entry.MedicationID}, DefaultTime_ID ${entry.DefaultTime_ID}, Date ${dateStr}`);
-            }
-            resolve();
+            console.log('Insert result (db=%s):', dbName, { affectedRows: result3.affectedRows, insertId: result3.insertId, warningCount: result3.warningCount });
+
+            // verify immediately by selecting the inserted row (use backticks)
+            const verifySql = 'SELECT `ScheduleID`, `MedicationID`, `DefaultTime_ID`, `Date`, `Time`, `Status` FROM `medicationschedule` WHERE `MedicationID` = ? AND `DefaultTime_ID` = ? AND `Date` = ?';
+            db.query(verifySql, [entry.MedicationID, entry.DefaultTime_ID, dateStr], (verErr, verRows) => {
+              if (verErr) {
+                console.error('❌ Verification SELECT error (db=%s):', dbName, verErr);
+              } else if (!verRows || verRows.length === 0) {
+                console.error('❌ Verification failed — row not found after insert (db=%s)', dbName, { MedicationID: entry.MedicationID, DefaultTime_ID: entry.DefaultTime_ID, Date: dateStr, insertResult: result3 });
+              } else {
+                console.log('✅ Verification row found (db=%s):', dbName, verRows[0]);
+              }
+              return resolve();
+            });
           });
         }));
       });
@@ -800,7 +839,7 @@ app.get('/api/reminders/today', (req, res) => {
 
     Promise.all(insertTasks).then(() => {
       // re-query and return today's reminders (fresh)
-      db.query(sql, [userId], (err2, refreshed) => {
+      db.query(sql, [dateParam, userId], (err2, refreshed) => {
         if (err2) {
           console.error('❌ Error refetching reminders:', err2);
           return res.status(500).json({ error: 'Database error' });
@@ -822,21 +861,39 @@ app.get('/api/reminders/today', (req, res) => {
 
 // PATCH /api/schedule/:id/status  { status: 'กินแล้ว' | 'ยังไม่กิน' }
 app.patch('/api/schedule/:id/status', (req, res) => {
-  const id = req.params.id;
-  const { status } = req.body;
-  if (!status) return res.status(400).json({ error: 'missing status' });
+  const scheduleId = req.params.id;
+  const { status, sideEffects, actualTime, recordedAt } = req.body;
 
-  db.query(
-    'UPDATE medicationschedule SET Status = ? WHERE ScheduleID = ?',
-    [status, id],
-    (err, result) => {
-      if (err) {
-        console.error('❌ Error updating status:', err);
-        return res.status(500).json({ error: 'Database error' });
-      }
-      res.json({ ok: true });
+  // ปรับรูปแบบ actualTime ให้เป็น HH:MM:SS ถ้าได้มาแค่ HH:MM
+  const normalizeTime = (t) => {
+    if (!t) return null;
+    const parts = String(t).split(':').map(p => p.trim());
+    if (parts.length === 1) return null;
+    if (parts.length === 2) parts.push('00');
+    // pad
+    const hh = parts[0].padStart(2, '0');
+    const mm = parts[1].padStart(2, '0');
+    const ss = (parts[2] || '00').padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  };
+
+  const actualTimeSql = normalizeTime(actualTime);
+  const recordedAtSql = recordedAt ? new Date(recordedAt) : new Date();
+
+  const sql = `
+    UPDATE medicationschedule
+    SET Status = ?, SideEffects = ?, ActualTime = ?, RecordedAt = ?
+    WHERE ScheduleID = ?
+  `;
+  const params = [status, sideEffects || null, actualTimeSql, recordedAtSql, scheduleId];
+
+  db.query(sql, params, (err, result) => {
+    if (err) {
+      console.error('Error updating schedule status:', err);
+      return res.status(500).json({ error: 'Database error' });
     }
-  );
+    return res.json({ success: true, affectedRows: result.affectedRows });
+  });
 });
 
 app.get('/api/user/:id', (req, res) => {
@@ -942,6 +999,98 @@ app.patch('/api/meal-times', (req, res) => {
 
   res.status(200).json({ message: 'Meal times updated successfully' });
 });
+
+
+// เพิ่ม endpoint สร้างกลุ่มโรค (groups)
+app.post('/api/groups', (req, res) => {
+  const { GroupName, UserID } = req.body;
+  if (!GroupName) return res.status(400).json({ error: 'GroupName required' });
+  const sql = 'INSERT INTO diseasegroup (GroupName, UserID, CreatedAt) VALUES (?, ?, NOW())';
+  db.query(sql, [GroupName, UserID || null], (err, result) => {
+    if (err) {
+      console.error('create group error', err);
+      return res.status(500).json({ error: 'DB error' });
+    }
+    res.json({ success: true, id: result.insertId });
+  });
+});
+
+// สร้างประเภทยา (medicationtype)
+app.post('/api/types', (req, res) => {
+  const { TypeName, UserID } = req.body;
+  if (!TypeName) return res.status(400).json({ error: 'TypeName required' });
+  const sql = 'INSERT INTO medicationtype (TypeName, UserID, CreatedAt) VALUES (?, ?, NOW())';
+  db.query(sql, [TypeName, UserID || null], (err, result) => {
+    if (err) {
+      console.error('create type error', err);
+      return res.status(500).json({ error: 'DB error' });
+    }
+    res.json({ success: true, id: result.insertId });
+  });
+});
+
+// สร้างหน่วยยา (dosageunit)
+app.post('/api/units', (req, res) => {
+  const { DosageType, UserID } = req.body;
+  if (!DosageType) return res.status(400).json({ error: 'DosageType required' });
+  const sql = 'INSERT INTO dosageunit (DosageType, UserID, CreatedAt) VALUES (?, ?, NOW())';
+  db.query(sql, [DosageType, UserID || null], (err, result) => {
+    if (err) {
+      console.error('create unit error', err);
+      return res.status(500).json({ error: 'DB error' });
+    }
+    res.json({ success: true, id: result.insertId });
+  });
+});
+
+
+app.get('/api/history', (req, res) => {
+  const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
+  const from = req.query.from; // expected YYYY-MM-DD
+  const to = req.query.to;
+
+  console.log('[GET] /api/history', { userId, from, to });
+
+  if (!userId) return res.status(400).json({ error: 'missing userId' });
+  if (!from || !to) return res.status(400).json({ error: 'missing from/to date' });
+
+  const sqlRows = `
+    SELECT s.ScheduleID, s.Date, s.Time, s.Status, s.ActualTime, s.SideEffects,
+           m.MedicationID, m.Name, m.Dosage, du.DosageType, mt.TypeName
+    FROM medicationschedule s
+    JOIN medication m ON s.MedicationID = m.MedicationID
+    LEFT JOIN dosageunit du ON m.UnitID = du.UnitID
+    LEFT JOIN medicationtype mt ON m.TypeID = mt.TypeID
+    WHERE m.UserID = ? AND s.Date BETWEEN ? AND ?
+    ORDER BY s.Date DESC, s.Time ASC
+  `;
+
+  const sqlSummary = `
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN s.Status = 'กินแล้ว' THEN 1 ELSE 0 END) AS taken,
+      SUM(CASE WHEN s.Status = 'ข้าม' THEN 1 ELSE 0 END) AS skipped
+    FROM medicationschedule s
+    JOIN medication m ON s.MedicationID = m.MedicationID
+    WHERE m.UserID = ? AND s.Date BETWEEN ? AND ?
+  `;
+
+  db.query(sqlRows, [userId, from, to], (err, rows) => {
+    if (err) {
+      console.error('history rows error', err);
+      return res.status(500).json({ error: 'DB error (rows)', details: err.message });
+    }
+    db.query(sqlSummary, [userId, from, to], (err2, summaryRows) => {
+      if (err2) {
+        console.error('history summary error', err2);
+        return res.status(500).json({ error: 'DB error (summary)', details: err2.message });
+      }
+      const summary = (summaryRows && summaryRows[0]) ? summaryRows[0] : { total: 0, taken: 0, skipped: 0 };
+      res.json({ rows: rows || [], summary });
+    });
+  });
+});
+
 
 // 🚀 รัน server
 app.listen(3000, () => {

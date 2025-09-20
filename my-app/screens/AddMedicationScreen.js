@@ -10,6 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Calendar } from 'react-native-calendars';
 import { TimerPickerModal } from "react-native-timer-picker";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
+import { useFocusEffect } from '@react-navigation/native';
 
 const frequencyOptions = [
   { label: 'ทุกวัน', value: 'every_day', id: 1 },
@@ -22,7 +23,7 @@ const frequencyOptions = [
   { label: 'กินเมื่อมีอาการ', value: 'on_demand', id: 8 }
 ];
 
-const AddMedicationScreen = ({ navigation }) => {
+const AddMedicationScreen = ({ navigation, route }) => {
   // ...existing state...
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
@@ -57,30 +58,91 @@ const AddMedicationScreen = ({ navigation }) => {
 
   const [groups, setGroups] = useState([]);
   const [units, setUnits] = useState([]);
+  const [types, setTypes] = useState([]);
+
+    // helper: robust id/label extraction for metadata items
+  const extractId = (obj) => {
+    if (!obj) return null;
+    return obj.GroupID ?? obj.TypeID ?? obj.DosageUnitID ?? obj.UnitID ?? obj.id ?? obj.ID ?? null;
+  };
+  const extractLabel = (obj) => {
+    if (!obj) return '';
+    return obj.GroupName ?? obj.TypeName ?? obj.DosageType ?? obj.name ?? obj.Label ?? '';
+  };
+
+  const handleAddNavigation = (kind) => {
+    switch (kind) {
+      case 'group': return navigation.navigate('AddGroup');
+      case 'type': return navigation.navigate('AddType');
+      case 'unit': return navigation.navigate('AddUnit');
+      default: return null;
+    }
+  };
+
+
+  const fetchMetadata = async () => {
+    try {
+      const userId = await AsyncStorage.getItem('userId');
+      const q = userId ? `?userId=${userId}` : '';
+      const [gRes, uRes, tRes] = await Promise.all([
+        fetch(`${BASE_URL}/api/groups${q}`).then(r => r.json()),
+        fetch(`${BASE_URL}/api/units${q}`).then(r => r.json()),
+        fetch(`${BASE_URL}/api/types${q}`).then(r => r.json()),
+      ]);
+      console.log('METADATA groups, units, types:', { gRes, uRes, tRes });
+      setGroups(Array.isArray(gRes) ? gRes : []);
+      setUnits(Array.isArray(uRes) ? uRes : []);
+      setTypes(Array.isArray(tRes) ? tRes : []);
+    } catch (e) {
+      console.warn('fetch metadata error', e);
+    }
+  };
+  
 
   useEffect(() => {
-    // ...existing fetches...
-    fetch(`${BASE_URL}/api/groups`)
-      .then(res => res.json())
-      .then(data => {
-        console.log("Groups data: ", data);
-        setGroups(data);
-      })
-      .catch(err => console.error('Error fetching groups:', err));
-
-    fetch(`${BASE_URL}/api/units`)
-      .then(res => res.json())
-      .then(data => {
-        console.log("Units data:", data);
-        setUnits(data);
-      })
-      .catch(err => console.error('Error fetching units:', err));
-
+    fetchMetadata();
+    
     fetch(`${BASE_URL}/api/userdefaultmealtime`)
       .then(res => res.json())
       .then(data => setDefaultTimes(data))
       .catch(err => console.error('Error fetching user default meal times:', err));
+
   }, []);
+
+  
+  useEffect(() => { fetchMetadata(); }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchMetadata();
+    }, [])
+  );
+
+  // handle return params from add-screens and auto-select new item
+  useEffect(() => {
+    if (!route || !route.params) return;
+    const { newGroupId, newGroupName, newUnitId, newUnitName, newTypeId, newTypeName } = route.params;
+    if (newGroupId) {
+      setGroupID(String(newGroupId));
+      // clear param to avoid re-triggering
+      navigation.setParams({ newGroupId: undefined, newGroupName: undefined });
+    } else if (newGroupName && !newGroupId) {
+      // fallback: if backend returned only name, try to find it after fetch
+      fetchMetadata().then(() => {
+        const found = groups.find(g => (g.GroupName || g.name) === newGroupName);
+        if (found) setGroupID(String(found.GroupID ?? found.id ?? found.GroupID));
+        navigation.setParams({ newGroupName: undefined });
+      });
+    }
+    if (newUnitId) {
+      setUnitID(String(newUnitId));
+      navigation.setParams({ newUnitId: undefined, newUnitName: undefined });
+    }
+    if (newTypeId) {
+      setTypeID(parseInt(newTypeId, 10));
+      navigation.setParams({ newTypeId: undefined, newTypeName: undefined });
+    }
+  }, [route?.params]);
 
   const convertMeal = (mealId) => {
     switch (mealId) {
@@ -260,30 +322,46 @@ const AddMedicationScreen = ({ navigation }) => {
       <TextInput style={styles.input} value={name} onChangeText={setName} />
 
       <Text style={styles.label}>กลุ่มโรค</Text>
-      <Picker selectedValue={groupID} onValueChange={setGroupID} mode="dropdown">
-        {groups.length > 0 ? (
-          groups.map(group => (
-            <Picker.Item key={group.GroupID} label={group.GroupName} value={group.GroupID} />
-          ))
-        ) : (
-          <Picker.Item label="ไม่มีข้อมูล" value="" />
-        )}
+      <Picker
+        selectedValue={groupID}
+        onValueChange={(v) => {
+          if (v === '__add_group__') return handleAddNavigation('group');
+          // keep as string (we store groupID as string)
+          setGroupID(v === '' ? '' : String(v));
+        }}
+      >
+        <Picker.Item label="-- เลือกกลุ่มโรค --" value="" />
+        {(groups || []).map(g => {
+          const id = extractId(g);
+          const label = extractLabel(g) || `กลุ่ม ${id ?? ''}`;
+          return <Picker.Item key={id ?? JSON.stringify(g)} label={label} value={String(id ?? '')} />;
+        })}
+        <Picker.Item label="+ เพิ่มกลุ่มโรคใหม่" value="__add_group__" />
       </Picker>
 
       <Text style={styles.label}>หมายเหตุเพิ่มเติม</Text>
       <TextInput style={styles.input} value={note} onChangeText={setNote} multiline />
 
       <Text style={styles.label}>ประเภทยา</Text>
-      <View style={styles.toggleRow}>
-        {['เม็ด', 'น้ำ', 'ฉีด', 'ทา'].map((type, index) => (
-          <TouchableOpacity
-            key={type}
-            style={[styles.toggleButton, typeID === index + 1 && styles.toggleActive]}
-            onPress={() => setTypeID(index + 1)}
-          >
-            <Text>{type}</Text>
-          </TouchableOpacity>
-        ))}
+      <View>
+        <Picker
+          selectedValue={typeID !== null && typeID !== undefined ? String(typeID) : ''}
+          onValueChange={(v) => {
+            if (v === '__add_type__') return handleAddNavigation('type');
+            // try convert numeric strings to number, otherwise null/keep empty
+            if (v === '') return setTypeID(null);
+            const num = Number(v);
+            setTypeID(!Number.isNaN(num) ? num : v);
+          }}
+        >
+          <Picker.Item label="-- เลือกประเภทยา --" value="" />
+          {(types || []).map(t => {
+            const id = extractId(t);
+            const label = extractLabel(t) || `ประเภท ${id ?? ''}`;
+            return <Picker.Item key={id ?? JSON.stringify(t)} label={label} value={String(id ?? '')} />;
+          })}
+          <Picker.Item label="+ เพิ่มประเภทใหม่" value="__add_type__" />
+        </Picker>
       </View>
 
       <Text style={styles.label}>ขนาดยา</Text>
@@ -297,14 +375,20 @@ const AddMedicationScreen = ({ navigation }) => {
       </View>
 
       <Text style={styles.label}>หน่วยยา</Text>
-      <Picker selectedValue={unitID} onValueChange={setUnitID} mode="dropdown">
-        {units.length > 0 ? (
-          units.map(unit => (
-            <Picker.Item key={unit.UnitID} label={unit.DosageType} value={unit.UnitID} />
-          ))
-        ) : (
-          <Picker.Item label="ไม่มีข้อมูล" value="" />
-        )}
+      <Picker
+        selectedValue={unitID}
+        onValueChange={(v) => {
+          if (v === '__add_unit__') return handleAddNavigation('unit');
+          setUnitID(v === '' ? '' : String(v));
+        }}
+      >
+        <Picker.Item label="-- เลือกหน่วยยา --" value="" />
+        {(units || []).map(u => {
+          const id = extractId(u);
+          const label = extractLabel(u) || `หน่วย ${id ?? ''}`;
+          return <Picker.Item key={id ?? JSON.stringify(u)} label={label} value={String(id ?? '')} />;
+        })}
+        <Picker.Item label="+ เพิ่มหน่วยยาใหม่" value="__add_unit__" />
       </Picker>
 
       <Text style={styles.label}>ความถี่</Text>

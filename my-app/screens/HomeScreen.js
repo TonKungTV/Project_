@@ -20,10 +20,10 @@ const StatusBadge = ({ status, onPress }) => {
     switch (status) {
       case 'กินแล้ว':
         return { color: '#28a745', icon: 'checkmark-circle', text: 'กินแล้ว' };
-      case 'ยังไม่กิน':
-        return { color: '#dc3545', icon: 'close-circle', text: 'ยังไม่กิน' };
-      case 'ไม่มีการบันทึก':
-        return { color: '#ffc107', icon: 'time-outline', text: 'ไม่มีการบันทึก' };
+      case 'ข้าม':
+        return { color: '#dc3545', icon: 'close-circle', text: 'ข้าม' };
+      case 'รอกิน':
+        return { color: '#ffc107', icon: 'time-outline', text: 'รอกิน' };
       default:
         return { color: '#6c757d', icon: 'help-circle-outline', text: 'ไม่ทราบสถานะ' };
     }
@@ -133,15 +133,37 @@ const HomeScreen = ({ navigation }) => {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [actualTakeTime, setActualTakeTime] = useState('');
 
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
   // ✅ เพิ่ม state สำหรับฟิลเตอร์
   const [activeFilter, setActiveFilter] = useState('ทั้งหมด');
 
-  const load = async () => {
+  const formatLocalDate = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const normalizeTime = (t) => {
+    if (!t) return null;
+    const parts = String(t).split(':').map(p => p.trim());
+    if (parts.length === 1) return null;
+    if (parts.length === 2) parts.push('00');
+    const hh = parts[0].padStart(2, '0');
+    const mm = parts[1].padStart(2, '0');
+    const ss = (parts[2] || '00').padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  };
+
+  const load = async (dateOverride) => {
   const userId = await AsyncStorage.getItem('userId');
   if (!userId) return;
 
   try {
-    const res = await fetch(`${BASE_URL}/api/reminders/today?userId=${userId}`);
+    const dateStr = dateOverride ? dateOverride : formatLocalDate(selectedDate);
+    const res = await fetch(`${BASE_URL}/api/reminders/today?userId=${userId}&date=${dateStr}`);
     const data = await res.json();
 
     // แก้ตรงนี้: แสดงเฉพาะแถวที่มี ScheduleID (คือมี schedule สำหรับวันนี้)
@@ -157,6 +179,7 @@ const HomeScreen = ({ navigation }) => {
       medType: r.TypeName || '-',
       importance: r.PriorityLabel || 'ปกติ',
       status: r.Status || 'ยังไม่บันทึก',
+      actualTime: r.ActualTime || null,
     }));
     setItems(mapped);
   } catch (error) {
@@ -173,9 +196,21 @@ useEffect(() => {
   return unsubscribe;
 }, []);
 
-  useEffect(() => {
-    load();
-  }, []);
+const changeSelectedDate = (deltaDays) => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + deltaDays);
+    setSelectedDate(d);
+    load(formatLocalDate(d));
+  };
+
+  const openDatePicker = () => setShowDatePicker(true);
+  const handleDateChange = (event, date) => {
+    setShowDatePicker(false);
+    if (!date) return;
+    setSelectedDate(date);
+    load(formatLocalDate(date));
+  };
+
 
   // ✅ ฟังก์ชันสำหรับฟิลเตอร์รายการยา
   const getFilteredItems = () => {
@@ -190,34 +225,42 @@ useEffect(() => {
     let nextStatus;
     
     // ✅ ปรับปรุงการเปลี่ยนสถานะ
-    if (item.status === 'ไม่มีการบันทึก' || item.status === 'ยังไม่กิน') {
+    if (item.status === 'รอกิน' || item.status === 'ข้าม') {
       nextStatus = 'กินแล้ว';
     } else if (item.status === 'กินแล้ว') {
-      nextStatus = 'ยังไม่กิน';
+      nextStatus = 'ข้าม';
     } else {
-      nextStatus = 'ไม่มีการบันทึก';
+      nextStatus = 'รอกิน';
     }
 
     setItems((prev) => prev.map((x) => (x.id === item.id ? { ...x, status: nextStatus } : x)));
 
     if (!item.scheduleId) return;
     try {
+      const actualTimeNormalized = customTime ? normalizeTime(customTime) : null;
       const updateData = {
         status: nextStatus,
         sideEffects: customSideEffects || null,
-        actualTime: customTime || null,
+        actualTime: actualTimeNormalized,
         recordedAt: new Date().toISOString()
       };
 
-      await fetch(`${BASE_URL}/api/schedule/${item.scheduleId}/status`, {
+      const res = await fetch(`${BASE_URL}/api/schedule/${item.scheduleId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updateData),
       });
-
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Failed to update schedule: ${res.status} ${text}`);
+      }
+      // update item actualTime in UI if returned OK
+      setItems(prev => prev.map(x => x.id === item.id ? { ...x, actualTime: actualTimeNormalized } : x));
       console.log('✅ บันทึกสำเร็จ:', updateData);
+      await load();
     } catch (e) {
-      setItems((prev) => prev.map((x) => (x.id === item.id ? { ...x, status: item.status } : x)));
+      // rollback optimistic update
+      setItems(previousItems); // rollback
       console.error('Error updating status:', e);
       Alert.alert('เกิดข้อผิดพลาด', 'ไม่สามารถบันทึกข้อมูลได้');
     }
@@ -228,10 +271,7 @@ useEffect(() => {
     setModalVisible(true);
     setSideEffects('');
     setMedTime(new Date());
-    setActualTakeTime(new Date().toLocaleTimeString('th-TH', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
-    }));
+    setActualTakeTime(item.actualTime ? item.actualTime.slice(0,5) : new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }));
   };
 
   const closeModal = () => {
@@ -261,11 +301,7 @@ useEffect(() => {
     if (selectedDate) {
       const currentTime = selectedDate;
       setMedTime(currentTime);
-      
-      const formattedTime = currentTime.toLocaleTimeString('th-TH', { 
-        hour: '2-digit', 
-        minute: '2-digit' 
-      });
+      const formattedTime = currentTime.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
       setActualTakeTime(formattedTime);
     }
   };
@@ -277,26 +313,46 @@ useEffect(() => {
   // ✅ ข้อมูลสำหรับปุ่มฟิลเตอร์
   const filterOptions = [
     { key: 'ทั้งหมด', label: 'ทั้งหมด', color: '#4dabf7', icon: 'apps' },
-    { key: 'ไม่มีการบันทึก', label: 'ไม่มีการบันทึก', color: '#ffc107', icon: 'time-outline' },
+    { key: 'รอกิน', label: 'รอกิน', color: '#ffc107', icon: 'time-outline' },
     { key: 'กินแล้ว', label: 'กินแล้ว', color: '#28a745', icon: 'checkmark-circle' },
-    { key: 'ยังไม่กิน', label: 'ยังไม่กิน', color: '#dc3545', icon: 'close-circle' },
+    { key: 'ข้าม', label: 'ข้าม', color: '#dc3545', icon: 'close-circle' },
   ];
 
   return (
     <ScrollView style={styles.container}>
       {/* Header */}
       <View style={styles.headerBox}>
-        <Text style={styles.header}>รายการยาที่ต้องกิน</Text>
-        <Text style={styles.date}>
-          {new Date().toLocaleDateString('th-TH', {
-            weekday: 'long',
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric',
-          })}
-        </Text>
-      </View>
-
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12 }}>
+          <TouchableOpacity onPress={() => changeSelectedDate(-1)} style={{ padding: 8 }}>
+            <Ionicons name="chevron-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          <View style={{ alignItems: 'center' }}>
+            <Text style={styles.header}>รายการยาที่ต้องกิน</Text>
+            <TouchableOpacity onPress={openDatePicker}>
+              <Text style={styles.date}>
+                {selectedDate.toLocaleDateString('th-TH', {
+                  weekday: 'long',
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity onPress={() => changeSelectedDate(1)} style={{ padding: 8 }}>
+            <Ionicons name="chevron-forward" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
+       </View>
+      {/* Date picker modal */}
+      {showDatePicker && (
+        <DateTimePicker
+          value={selectedDate}
+          mode="date"
+          display="default"
+          onChange={handleDateChange}
+        />
+      )}
       {/* สรุปรายการยาทั้งหมด */}
       <View style={styles.summaryCard}>
         <Text style={styles.summaryTitle}>สรุปวันนี้</Text>
@@ -313,15 +369,15 @@ useEffect(() => {
           </View>
           <View style={styles.summaryItem}>
             <Text style={[styles.summaryNumber, { color: '#dc3545' }]}>
-              {items.filter(item => item.status === 'ยังไม่กิน').length}
+              {items.filter(item => item.status === 'ข้าม').length}
             </Text>
-            <Text style={styles.summaryLabel}>ยังไม่กิน</Text>
+            <Text style={styles.summaryLabel}>ข้าม</Text>
           </View>
           <View style={styles.summaryItem}>
             <Text style={[styles.summaryNumber, { color: '#ffc107' }]}>
-              {items.filter(item => item.status === 'ไม่มีการบันทึก').length}
+              {items.filter(item => item.status === 'รอกิน').length}
             </Text>
-            <Text style={styles.summaryLabel}>ไม่มีการบันทึก</Text>
+            <Text style={styles.summaryLabel}>รอกิน</Text>
           </View>
         </View>
       </View>
@@ -546,10 +602,10 @@ const styles = StyleSheet.create({
   },
 
   date: { 
-    backgroundColor: '#fff', 
+    paddingTop: 0,
     paddingVertical: 12, 
     textAlign: 'center',
-    color: '#333',
+    color: '#fff',
     fontSize: 16,
   },
 
