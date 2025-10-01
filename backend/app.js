@@ -133,6 +133,7 @@ app.get('/api/users', (req, res) => {
   });
 });
 
+// /api/medications
 app.post('/api/medications', (req, res) => {
   const data = req.body;
   console.log('📦 /api/medications payload:', data);
@@ -142,7 +143,6 @@ app.post('/api/medications', (req, res) => {
     UnitID, UsageMealID, PrePostTime, Priority,
     StartDate, EndDate, Frequency,
     DefaultTime_ID_1, DefaultTime_ID_2, DefaultTime_ID_3, DefaultTime_ID_4,
-    // new fields expected from frontend:
     CustomValue, WeekDays, MonthDays, Cycle_Use_Days, Cycle_Rest_Days, OnDemand
   } = data;
 
@@ -206,7 +206,7 @@ app.post('/api/medications', (req, res) => {
   const getOrCreateTimeID = (minutes, cb) => {
     if (minutes === null || minutes === undefined) return cb(null, null);
     const mm = String(parseInt(minutes, 10)).padStart(2, '0');
-    const timeStr = `00:${mm}:00`; // '00:15:00'
+    const timeStr = `00:${mm}:00`;
 
     db.query('SELECT TimeID FROM usagemealtime WHERE Time = ?', [timeStr], (err, rows) => {
       if (err) return cb(err);
@@ -219,7 +219,6 @@ app.post('/api/medications', (req, res) => {
   };
 
   const proceedInsert = (timeIDFinal) => {
-    // store frequency details per-medication in medication table
     const insertMain = `
       INSERT INTO medication
       (userid, name, note, groupid, typeid, dosage, unitid, usagemealid, timeid, priority, startdate, enddate, frequencyid,
@@ -240,7 +239,7 @@ app.post('/api/medications', (req, res) => {
       StartDate || null,
       EndDate || null,
       FrequencyID,
-      Frequency || null,      // FrequencyValue (string key like 'weekly','monthly')
+      Frequency || null,
       CustomValueStr,
       WeekDaysJSON,
       MonthDaysJSON,
@@ -249,8 +248,7 @@ app.post('/api/medications', (req, res) => {
       OnDemandFlag
     ];
 
-    // DEBUG: log prepared values before insert
-    console.log('📥 Inserting medication with params:\n', {
+    console.log('📥 Inserting medication with params:', {
       params,
       WeekDaysJSON,
       MonthDaysJSON,
@@ -267,26 +265,46 @@ app.post('/api/medications', (req, res) => {
       }
 
       const medId = result.insertId;
-      // return the inserted row for verification
+      
+      // ✅ บันทึก log เริ่มต้นสำหรับยาใหม่
+      const today = new Date().toISOString().split('T')[0];
+      db.query(
+        `INSERT INTO medicationlog 
+         (MedicationID, ScheduleID, \`Count\`, TakenCount, SkippedCount, PerCount, date, Status, SideEffects)
+         VALUES (?, NULL, 0, 0, 0, 0, ?, 'รอกิน', NULL)
+         ON DUPLICATE KEY UPDATE \`Count\` = \`Count\``,
+        [medId, today],
+        (logErr) => {
+          if (logErr) console.warn('⚠️ Failed to create initial log:', logErr);
+        }
+      );
+
       db.query('SELECT * FROM medication WHERE MedicationID = ?', [medId], (selErr, rows) => {
         if (selErr) {
           console.error('❌ SELECT inserted medication error:', selErr);
-          // still try to proceed with default time insert if any
         } else {
           console.log('✅ Inserted medication row:', rows[0]);
         }
 
         if (defaultTimeIds.length === 0) {
-          return res.status(201).json({ id: medId, medication: rows ? rows[0] : null });
+          return res.status(201).json({ 
+            id: medId, 
+            medicationId: medId, // ✅ ส่ง medicationId กลับไปด้วย
+            medication: rows ? rows[0] : null 
+          });
         }
+
         const values = defaultTimeIds.map(dt => [medId, dt]);
         db.query(
           'INSERT INTO medication_defaulttime (medicationid, defaulttime_id) VALUES ?',
           [values],
           (err2) => {
             if (err2) return sendDbError('INSERT medication_defaulttime', err2);
-            // return inserted row as well
-            res.status(201).json({ id: medId, medication: rows ? rows[0] : null });
+            res.status(201).json({ 
+              id: medId, 
+              medicationId: medId, // ✅ ส่ง medicationId กลับไปด้วย
+              medication: rows ? rows[0] : null 
+            });
           }
         );
       });
@@ -807,7 +825,7 @@ app.get('/api/reminders/today', (req, res) => {
         const insertSql = `
           INSERT INTO \`medicationschedule\` (\`MedicationID\`, \`DefaultTime_ID\`, \`Date\`, \`Time\`, \`Status\`)
           VALUES (?, ?, ?, ?, 'รอกิน')
-          ON DUPLICATE KEY UPDATE \`Time\` = VALUES(\`Time\`), \`Status\` = VALUES(\`Status\`)
+          ON DUPLICATE KEY UPDATE \`Time\` = VALUES(\`Time\`)
         `;
         const params = [entry.MedicationID, entry.DefaultTime_ID, dateStr, entry.Time];
 
@@ -1087,6 +1105,293 @@ app.get('/api/history', (req, res) => {
       }
       const summary = (summaryRows && summaryRows[0]) ? summaryRows[0] : { total: 0, taken: 0, skipped: 0 };
       res.json({ rows: rows || [], summary });
+    });
+  });
+});
+
+// เพิ่มใน app.js หลัง API อื่นๆ
+
+// ✅ API สำหรับบันทึก/อัปเดต log เมื่อมีการเปลี่ยนสถานะ
+app.post('/api/medicationlog', async (req, res) => {
+  const { medicationId, scheduleId, date, status, sideEffects } = req.body;
+  
+  console.log('📝 Received log request:', { medicationId, scheduleId, date, status });
+  
+  try {
+    // ✅ ตรวจสอบว่ามี scheduleId หรือไม่
+    if (!scheduleId || !medicationId || !date) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // ดึงข้อมูลจำนวนรายการยาในวันนั้น
+    const [countResult] = await db.promise().query(
+      `SELECT COUNT(*) as total 
+       FROM medicationschedule 
+       WHERE MedicationID = ? AND Date = ?`,
+      [medicationId, date]
+    );
+    
+    const totalCount = countResult[0]?.total || 0;
+    
+    // นับจำนวนที่กินแล้วและข้าม
+    const [statusResult] = await db.promise().query(
+      `SELECT 
+         SUM(CASE WHEN Status = 'กินแล้ว' THEN 1 ELSE 0 END) as taken,
+         SUM(CASE WHEN Status = 'ข้าม' THEN 1 ELSE 0 END) as skipped
+       FROM medicationschedule 
+       WHERE MedicationID = ? AND Date = ?`,
+      [medicationId, date]
+    );
+    
+    const takenCount = statusResult[0]?.taken || 0;
+    const skippedCount = statusResult[0]?.skipped || 0;
+    const perCount = totalCount > 0 ? ((takenCount / totalCount) * 100).toFixed(2) : 0;
+    
+    console.log('📊 Stats:', { totalCount, takenCount, skippedCount, perCount });
+    
+    // ✅ ใช้ (MedicationID, date) เป็น unique key แทน LogID auto-increment
+    await db.promise().query(
+      `INSERT INTO medicationlog 
+       (MedicationID, ScheduleID, \`Count\`, TakenCount, SkippedCount, PerCount, date, Status, SideEffects)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         ScheduleID = VALUES(ScheduleID),
+         \`Count\` = VALUES(\`Count\`),
+         TakenCount = VALUES(TakenCount),
+         SkippedCount = VALUES(SkippedCount),
+         PerCount = VALUES(PerCount),
+         Status = VALUES(Status),
+         SideEffects = VALUES(SideEffects)`,
+      [medicationId, scheduleId, totalCount, takenCount, skippedCount, perCount, date, status, sideEffects || null]
+    );
+    
+    res.json({ success: true, perCount, takenCount, totalCount });
+  } catch (error) {
+    console.error('❌ Error updating medication log:', error);
+    res.status(500).json({ error: 'Failed to update log', details: error.message });
+  }
+});
+
+// ✅ API สำหรับดึง % ของยาแต่ละตัว
+app.get('/api/medicationlog/stats', async (req, res) => {
+  const { userId, from, to } = req.query;
+  
+  try {
+    const [rows] = await db.promise().query(
+      `SELECT 
+         m.MedicationID,
+         m.name as MedicationName,
+         SUM(ml.\`Count\`) as TotalScheduled,
+         SUM(ml.TakenCount) as TotalTaken,
+         SUM(ml.SkippedCount) as TotalSkipped,
+         ROUND(AVG(ml.PerCount), 2) as AvgPerCount
+       FROM medicationlog ml
+       JOIN medication m ON ml.MedicationID = m.MedicationID
+       WHERE m.UserID = ? AND ml.date BETWEEN ? AND ?
+       GROUP BY m.MedicationID, m.name
+       ORDER BY AvgPerCount DESC`,
+      [userId, from, to]
+    );
+    
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching medication stats:', error);
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+
+// ============================================
+// 🔧 API แก้ไข/ลบ กลุ่มโรค (Groups)
+// ============================================
+
+// PUT /api/groups/:id - แก้ไขกลุ่มโรค
+app.put('/api/groups/:id', (req, res) => {
+  const groupId = req.params.id;
+  const { GroupName, UserID } = req.body;
+  
+  if (!GroupName) {
+    return res.status(400).json({ error: 'GroupName is required' });
+  }
+  
+  const sql = 'UPDATE diseasegroup SET GroupName = ?, UserID = ? WHERE GroupID = ?';
+  db.query(sql, [GroupName, UserID || null, groupId], (err, result) => {
+    if (err) {
+      console.error('❌ Update group error:', err);
+      return res.status(500).json({ error: 'Database error', details: err.message });
+    }
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+    
+    res.json({ success: true, message: 'Group updated successfully' });
+  });
+});
+
+// DELETE /api/groups/:id - ลบกลุ่มโรค
+app.delete('/api/groups/:id', (req, res) => {
+  const groupId = req.params.id;
+  
+  // ตรวจสอบว่ามียาที่ใช้กลุ่มนี้อยู่หรือไม่
+  const checkSql = 'SELECT COUNT(*) as count FROM medication WHERE GroupID = ?';
+  db.query(checkSql, [groupId], (err, result) => {
+    if (err) {
+      console.error('❌ Check group usage error:', err);
+      return res.status(500).json({ error: 'Database error', details: err.message });
+    }
+    
+    const count = result[0]?.count || 0;
+    if (count > 0) {
+      return res.status(400).json({ 
+        error: 'Cannot delete group', 
+        message: `มียา ${count} รายการที่ใช้กลุ่มนี้อยู่` 
+      });
+    }
+    
+    // ลบกลุ่ม
+    const deleteSql = 'DELETE FROM diseasegroup WHERE GroupID = ?';
+    db.query(deleteSql, [groupId], (err2, result2) => {
+      if (err2) {
+        console.error('❌ Delete group error:', err2);
+        return res.status(500).json({ error: 'Database error', details: err2.message });
+      }
+      
+      if (result2.affectedRows === 0) {
+        return res.status(404).json({ error: 'Group not found' });
+      }
+      
+      res.json({ success: true, message: 'Group deleted successfully' });
+    });
+  });
+});
+
+// ============================================
+// 🔧 API แก้ไข/ลบ ประเภทยา (Types)
+// ============================================
+
+// PUT /api/types/:id - แก้ไขประเภทยา
+app.put('/api/types/:id', (req, res) => {
+  const typeId = req.params.id;
+  const { TypeName, UserID } = req.body;
+  
+  if (!TypeName) {
+    return res.status(400).json({ error: 'TypeName is required' });
+  }
+  
+  const sql = 'UPDATE medicationtype SET TypeName = ?, UserID = ? WHERE TypeID = ?';
+  db.query(sql, [TypeName, UserID || null, typeId], (err, result) => {
+    if (err) {
+      console.error('❌ Update type error:', err);
+      return res.status(500).json({ error: 'Database error', details: err.message });
+    }
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Type not found' });
+    }
+    
+    res.json({ success: true, message: 'Type updated successfully' });
+  });
+});
+
+// DELETE /api/types/:id - ลบประเภทยา
+app.delete('/api/types/:id', (req, res) => {
+  const typeId = req.params.id;
+  
+  // ตรวจสอบว่ามียาที่ใช้ประเภทนี้อยู่หรือไม่
+  const checkSql = 'SELECT COUNT(*) as count FROM medication WHERE TypeID = ?';
+  db.query(checkSql, [typeId], (err, result) => {
+    if (err) {
+      console.error('❌ Check type usage error:', err);
+      return res.status(500).json({ error: 'Database error', details: err.message });
+    }
+    
+    const count = result[0]?.count || 0;
+    if (count > 0) {
+      return res.status(400).json({ 
+        error: 'Cannot delete type', 
+        message: `มียา ${count} รายการที่ใช้ประเภทนี้อยู่` 
+      });
+    }
+    
+    // ลบประเภท
+    const deleteSql = 'DELETE FROM medicationtype WHERE TypeID = ?';
+    db.query(deleteSql, [typeId], (err2, result2) => {
+      if (err2) {
+        console.error('❌ Delete type error:', err2);
+        return res.status(500).json({ error: 'Database error', details: err2.message });
+      }
+      
+      if (result2.affectedRows === 0) {
+        return res.status(404).json({ error: 'Type not found' });
+      }
+      
+      res.json({ success: true, message: 'Type deleted successfully' });
+    });
+  });
+});
+
+// ============================================
+// 🔧 API แก้ไข/ลบ หน่วยยา (Units)
+// ============================================
+
+// PUT /api/units/:id - แก้ไขหน่วยยา
+app.put('/api/units/:id', (req, res) => {
+  const unitId = req.params.id;
+  const { DosageType, UserID } = req.body;
+  
+  if (!DosageType) {
+    return res.status(400).json({ error: 'DosageType is required' });
+  }
+  
+  const sql = 'UPDATE dosageunit SET DosageType = ?, UserID = ? WHERE UnitID = ?';
+  db.query(sql, [DosageType, UserID || null, unitId], (err, result) => {
+    if (err) {
+      console.error('❌ Update unit error:', err);
+      return res.status(500).json({ error: 'Database error', details: err.message });
+    }
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Unit not found' });
+    }
+    
+    res.json({ success: true, message: 'Unit updated successfully' });
+  });
+});
+
+// DELETE /api/units/:id - ลบหน่วยยา
+app.delete('/api/units/:id', (req, res) => {
+  const unitId = req.params.id;
+  
+  // ตรวจสอบว่ามียาที่ใช้หน่วยนี้อยู่หรือไม่
+  const checkSql = 'SELECT COUNT(*) as count FROM medication WHERE UnitID = ?';
+  db.query(checkSql, [unitId], (err, result) => {
+    if (err) {
+      console.error('❌ Check unit usage error:', err);
+      return res.status(500).json({ error: 'Database error', details: err.message });
+    }
+    
+    const count = result[0]?.count || 0;
+    if (count > 0) {
+      return res.status(400).json({ 
+        error: 'Cannot delete unit', 
+        message: `มียา ${count} รายการที่ใช้หน่วยนี้อยู่` 
+      });
+    }
+    
+    // ลบหน่วย
+    const deleteSql = 'DELETE FROM dosageunit WHERE UnitID = ?';
+    db.query(deleteSql, [unitId], (err2, result2) => {
+      if (err2) {
+        console.error('❌ Delete unit error:', err2);
+        return res.status(500).json({ error: 'Database error', details: err2.message });
+      }
+      
+      if (result2.affectedRows === 0) {
+        return res.status(404).json({ error: 'Unit not found' });
+      }
+      
+      res.json({ success: true, message: 'Unit deleted successfully' });
     });
   });
 });

@@ -3,6 +3,7 @@ import {
   View, Text, TextInput, StyleSheet, TouchableOpacity,
   Button, Alert, ScrollView, Platform
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { BASE_URL } from './config';
@@ -24,7 +25,7 @@ const frequencyOptions = [
 ];
 
 const AddMedicationScreen = ({ navigation, route }) => {
-  // ...existing state...
+  // ...existing code...
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
   const [groupID, setGroupID] = useState('');
@@ -44,11 +45,10 @@ const AddMedicationScreen = ({ navigation, route }) => {
   const [frequency, setFrequency] = useState('every_day');
   const [frequencyID, setFrequencyID] = useState();
   const [isFrequencyWithCustomTime, setIsFrequencyWithCustomTime] = useState(false);
-  const [selectedWeekDays, setSelectedWeekDays] = useState([]);  // 1=Mon .. 7=Sun
-  const [cycleUseDays, setCycleUseDays] = useState('');  // สำหรับกรอกวันใช้ยา
-  const [cycleRestDays, setCycleRestDays] = useState('');  // สำหรับกรอกวันหยุดพัก
-  // เก็บวันที่ที่เลือกในปฏิทินเป็น object สำหรับ markedDates
-  const [selectedMonthDates, setSelectedMonthDates] = useState({});  // { '2025-09-17': {selected:true,...}, ... }
+  const [selectedWeekDays, setSelectedWeekDays] = useState([]);
+  const [cycleUseDays, setCycleUseDays] = useState('');
+  const [cycleRestDays, setCycleRestDays] = useState('');
+  const [selectedMonthDates, setSelectedMonthDates] = useState({});
   const [mealTime, setMealTime] = useState({});
   const [time, setTime] = useState({});
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
@@ -60,7 +60,7 @@ const AddMedicationScreen = ({ navigation, route }) => {
   const [units, setUnits] = useState([]);
   const [types, setTypes] = useState([]);
 
-    // helper: robust id/label extraction for metadata items
+  // ...existing code...
   const extractId = (obj) => {
     if (!obj) return null;
     return obj.GroupID ?? obj.TypeID ?? obj.DosageUnitID ?? obj.UnitID ?? obj.id ?? obj.ID ?? null;
@@ -79,7 +79,6 @@ const AddMedicationScreen = ({ navigation, route }) => {
     }
   };
 
-
   const fetchMetadata = async () => {
     try {
       const userId = await AsyncStorage.getItem('userId');
@@ -97,20 +96,15 @@ const AddMedicationScreen = ({ navigation, route }) => {
       console.warn('fetch metadata error', e);
     }
   };
-  
 
   useEffect(() => {
     fetchMetadata();
-    
+
     fetch(`${BASE_URL}/api/userdefaultmealtime`)
       .then(res => res.json())
       .then(data => setDefaultTimes(data))
       .catch(err => console.error('Error fetching user default meal times:', err));
-
   }, []);
-
-  
-  useEffect(() => { fetchMetadata(); }, []);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -118,16 +112,13 @@ const AddMedicationScreen = ({ navigation, route }) => {
     }, [])
   );
 
-  // handle return params from add-screens and auto-select new item
   useEffect(() => {
     if (!route || !route.params) return;
     const { newGroupId, newGroupName, newUnitId, newUnitName, newTypeId, newTypeName } = route.params;
     if (newGroupId) {
       setGroupID(String(newGroupId));
-      // clear param to avoid re-triggering
       navigation.setParams({ newGroupId: undefined, newGroupName: undefined });
     } else if (newGroupName && !newGroupId) {
-      // fallback: if backend returned only name, try to find it after fetch
       fetchMetadata().then(() => {
         const found = groups.find(g => (g.GroupName || g.name) === newGroupName);
         if (found) setGroupID(String(found.GroupID ?? found.id ?? found.GroupID));
@@ -164,9 +155,8 @@ const AddMedicationScreen = ({ navigation, route }) => {
     );
   };
 
-  // Calendar multi-select (สำหรับ monthly) - toggle date selection
   const onMonthDayPress = (day) => {
-    const dateStr = day.dateString; // 'YYYY-MM-DD'
+    const dateStr = day.dateString;
     setSelectedMonthDates(prev => {
       const copy = { ...prev };
       if (copy[dateStr]) {
@@ -179,7 +169,6 @@ const AddMedicationScreen = ({ navigation, route }) => {
   };
 
   const handleSave = async () => {
-    // ...existing validations...
     if (!name || !typeID || selectedTimeIds.length === 0 || !groupID) {
       Alert.alert('กรุณากรอกข้อมูลให้ครบ');
       return;
@@ -194,12 +183,11 @@ const AddMedicationScreen = ({ navigation, route }) => {
         prePostTime === undefined ||
         (prePostTime === 'custom' && (!customTime || isNaN(parseInt(customTime, 10))));
       if (needMinutes) {
-        Alert.alert('โปรดเลือกจำนวน “นาที” สำหรับก่อน/หลังอาหาร (เช่น 15 หรือ 30 นาที)');
+        Alert.alert('โปรดเลือกจำนวน "นาที" สำหรับก่อน/หลังอาหาร (เช่น 15 หรือ 30 นาที)');
         return;
       }
     }
 
-    // frequency-specific validations
     if (frequency === 'weekly' && selectedWeekDays.length === 0) {
       Alert.alert('โปรดเลือกวันในสัปดาห์อย่างน้อย 1 วัน');
       return;
@@ -244,21 +232,22 @@ const AddMedicationScreen = ({ navigation, route }) => {
           : prePostTime)
         : null;
 
-    // parse YYYY-MM-DD โดยตรง (หลีกเลี่ยง new Date(...) ที่ทำให้เกิด timezone shift)
     const monthDayNumbers = Object.keys(selectedMonthDates)
       .map(d => {
         const parts = String(d).split('-');
         return parts.length >= 3 ? parseInt(parts[2], 10) : NaN;
       })
       .filter(Number.isFinite);
-    const uniqueMonthDays = Array.from(new Set(monthDayNumbers)).sort((a,b) => a-b);
-      const formatLocalDate = (d) => {
+    const uniqueMonthDays = Array.from(new Set(monthDayNumbers)).sort((a, b) => a - b);
+
+    const formatLocalDate = (d) => {
       if (!d) return null;
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, '0');
       const day = String(d.getDate()).padStart(2, '0');
       return `${y}-${m}-${day}`;
     };
+
     const medicationData = {
       UserID: userId,
       Name: name,
@@ -276,8 +265,8 @@ const AddMedicationScreen = ({ navigation, route }) => {
       CustomValue: CustomValue || null,
       FrequencyID,
       ...defaultTimeFields,
-      WeekDays: selectedWeekDays.length ? selectedWeekDays : null, // สำหรับ weekly (array of 1..7)
-      MonthDays: uniqueMonthDays.length ? uniqueMonthDays : null,  // สำหรับ monthly -> ส่งเป็น array ของตัวเลขวันที่ในเดือน
+      WeekDays: selectedWeekDays.length ? selectedWeekDays : null,
+      MonthDays: uniqueMonthDays.length ? uniqueMonthDays : null,
       Cycle_Use_Days: cycleUseDays ? parseInt(cycleUseDays, 10) : null,
       Cycle_Rest_Days: cycleRestDays ? parseInt(cycleRestDays, 10) : null,
       OnDemand: frequency === 'on_demand' ? true : false
@@ -292,6 +281,25 @@ const AddMedicationScreen = ({ navigation, route }) => {
       });
 
       if (response.ok) {
+        const result = await response.json();
+        const newMedicationId = result.medicationId; // ต้องให้ backend ส่ง medicationId กลับมา
+
+        // ✅ บันทึก log เริ่มต้น
+        if (newMedicationId) {
+          const today = new Date().toISOString().split('T')[0];
+          await fetch(`${BASE_URL}/api/medicationlog`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              medicationId: newMedicationId,
+              scheduleId: null,
+              date: today,
+              status: 'รอกิน',
+              sideEffects: null
+            }),
+          }).catch(err => console.warn('Log creation failed:', err));
+        }
+
         Alert.alert('เพิ่มยาเรียบร้อย');
         navigation.replace('HomeScreen');
       } else {
@@ -305,7 +313,6 @@ const AddMedicationScreen = ({ navigation, route }) => {
     }
   };
 
-  // Logic สำหรับการแสดงผล input เวลา/จำนวนสำหรับ "ทุก X วัน" หรือ "ทุก X ชั่วโมง"
   const handleFrequencyChange = (value) => {
     setFrequency(value);
     if (value === 'every_X_days' || value === 'every_X_hours' || value === 'every_X_minutes') {
@@ -317,352 +324,844 @@ const AddMedicationScreen = ({ navigation, route }) => {
 
   return (
     <ScrollView style={styles.container}>
-      {/* ...existing UI fields (name, group, note, type, dosage, unit) ... */}
-      <Text style={styles.label}>ชื่อยา</Text>
-      <TextInput style={styles.input} value={name} onChangeText={setName} />
-
-      <Text style={styles.label}>กลุ่มโรค</Text>
-      <Picker
-        selectedValue={groupID}
-        onValueChange={(v) => {
-          if (v === '__add_group__') return handleAddNavigation('group');
-          // keep as string (we store groupID as string)
-          setGroupID(v === '' ? '' : String(v));
-        }}
-      >
-        <Picker.Item label="-- เลือกกลุ่มโรค --" value="" />
-        {(groups || []).map(g => {
-          const id = extractId(g);
-          const label = extractLabel(g) || `กลุ่ม ${id ?? ''}`;
-          return <Picker.Item key={id ?? JSON.stringify(g)} label={label} value={String(id ?? '')} />;
-        })}
-        <Picker.Item label="+ เพิ่มกลุ่มโรคใหม่" value="__add_group__" />
-      </Picker>
-
-      <Text style={styles.label}>หมายเหตุเพิ่มเติม</Text>
-      <TextInput style={styles.input} value={note} onChangeText={setNote} multiline />
-
-      <Text style={styles.label}>ประเภทยา</Text>
-      <View>
-        <Picker
-          selectedValue={typeID !== null && typeID !== undefined ? String(typeID) : ''}
-          onValueChange={(v) => {
-            if (v === '__add_type__') return handleAddNavigation('type');
-            // try convert numeric strings to number, otherwise null/keep empty
-            if (v === '') return setTypeID(null);
-            const num = Number(v);
-            setTypeID(!Number.isNaN(num) ? num : v);
-          }}
-        >
-          <Picker.Item label="-- เลือกประเภทยา --" value="" />
-          {(types || []).map(t => {
-            const id = extractId(t);
-            const label = extractLabel(t) || `ประเภท ${id ?? ''}`;
-            return <Picker.Item key={id ?? JSON.stringify(t)} label={label} value={String(id ?? '')} />;
-          })}
-          <Picker.Item label="+ เพิ่มประเภทใหม่" value="__add_type__" />
-        </Picker>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>เพิ่มยาใหม่</Text>
+        <Text style={styles.headerSubtitle}>กรุณากรอกข้อมูลยาให้ครบถ้วน</Text>
       </View>
 
-      <Text style={styles.label}>ขนาดยา</Text>
-      <View style={{ flexDirection: 'row' }}>
-        <TextInput
-          style={[styles.input, { flex: 1, marginRight: 8 }]}
-          value={dosage}
-          onChangeText={setDosage}
-          keyboardType="numeric"
-        />
-      </View>
+      {/* Section: ข้อมูลพื้นฐาน */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>📋 ข้อมูลพื้นฐาน</Text>
 
-      <Text style={styles.label}>หน่วยยา</Text>
-      <Picker
-        selectedValue={unitID}
-        onValueChange={(v) => {
-          if (v === '__add_unit__') return handleAddNavigation('unit');
-          setUnitID(v === '' ? '' : String(v));
-        }}
-      >
-        <Picker.Item label="-- เลือกหน่วยยา --" value="" />
-        {(units || []).map(u => {
-          const id = extractId(u);
-          const label = extractLabel(u) || `หน่วย ${id ?? ''}`;
-          return <Picker.Item key={id ?? JSON.stringify(u)} label={label} value={String(id ?? '')} />;
-        })}
-        <Picker.Item label="+ เพิ่มหน่วยยาใหม่" value="__add_unit__" />
-      </Picker>
-
-      <Text style={styles.label}>ความถี่</Text>
-      <Picker
-        selectedValue={frequency}
-        onValueChange={handleFrequencyChange}
-        mode="dropdown"
-      >
-        {frequencyOptions.map((option) => (
-          <Picker.Item key={option.value} label={option.label} value={option.value} />
-        ))}
-      </Picker>
-
-      {(isFrequencyWithCustomTime) && (
-        <View>
-          <Text style={styles.label}>กรอกจำนวน</Text>
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>ชื่อยา <Text style={styles.required}>*</Text></Text>
           <TextInput
             style={styles.input}
-            value={CustomValue}
-            onChangeText={setCustomValue}
-            keyboardType="numeric"
-            placeholder="กรอกจำนวน"
+            value={name}
+            onChangeText={setName}
+            placeholder="ระบุชื่อยา"
+            placeholderTextColor="#999"
           />
         </View>
-      )}
 
-      {frequency === 'weekly' && (
-        <View>
-          <Text style={styles.label}>เลือกวันในสัปดาห์</Text>
-          {['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์','อาทิตย์'].map((day, index) => (
+        <View style={styles.inputContainer}>
+          <View style={styles.labelRow}>
+            <Text style={styles.label}>กลุ่มโรค <Text style={styles.required}>*</Text></Text>
             <TouchableOpacity
-              key={index}
-              style={[styles.toggleButton, selectedWeekDays.includes(index + 1) && styles.toggleActive]}
-              onPress={() => {
-                const newSelectedDays = selectedWeekDays.includes(index + 1)
-                  ? selectedWeekDays.filter(item => item !== index + 1)
-                  : [...selectedWeekDays, index + 1];
-                setSelectedWeekDays(newSelectedDays);
-              }}
+              style={styles.manageLink}
+              onPress={() => navigation.navigate('ManageGroups')}
             >
-              <Text>{day}</Text>
+              <Ionicons name="settings-outline" size={16} color="#4da6ff" />
+              <Text style={styles.manageLinkText}>จัดการ</Text>
             </TouchableOpacity>
-          ))}
+          </View>
+          <View style={styles.pickerWrapper}>
+            <Picker
+              selectedValue={groupID}
+              onValueChange={(v) => {
+                if (v === '__add_group__') return handleAddNavigation('group');
+                setGroupID(v === '' ? '' : String(v));
+              }}
+              style={styles.picker}
+            >
+              <Picker.Item label="-- เลือกกลุ่มโรค --" value="" />
+              {(groups || []).map(g => {
+                const id = extractId(g);
+                const label = extractLabel(g) || `กลุ่ม ${id ?? ''}`;
+                return <Picker.Item key={id ?? JSON.stringify(g)} label={label} value={String(id ?? '')} />;
+              })}
+              <Picker.Item label="+ เพิ่มกลุ่มโรคใหม่" value="__add_group__" />
+            </Picker>
+          </View>
         </View>
-      )}
 
-      {frequency === 'cycle' && (
-        <View>
-          <Text style={styles.label}>วันใช้ยา</Text>
+        <View style={styles.inputContainer}>
+          <View style={styles.labelRow}>
+            <Text style={styles.label}>ประเภทยา <Text style={styles.required}>*</Text></Text>
+            <TouchableOpacity
+              style={styles.manageLink}
+              onPress={() => navigation.navigate('ManageTypes')}
+            >
+              <Ionicons name="settings-outline" size={16} color="#4da6ff" />
+              <Text style={styles.manageLinkText}>จัดการ</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.pickerWrapper}>
+            <Picker
+              selectedValue={typeID !== null && typeID !== undefined ? String(typeID) : ''}
+              onValueChange={(v) => {
+                if (v === '__add_type__') return handleAddNavigation('type');
+                if (v === '') return setTypeID(null);
+                const num = Number(v);
+                setTypeID(!Number.isNaN(num) ? num : v);
+              }}
+              style={styles.picker}
+            >
+              <Picker.Item label="-- เลือกประเภทยา --" value="" />
+              {(types || []).map(t => {
+                const id = extractId(t);
+                const label = extractLabel(t) || `ประเภท ${id ?? ''}`;
+                return <Picker.Item key={id ?? JSON.stringify(t)} label={label} value={String(id ?? '')} />;
+              })}
+              <Picker.Item label="+ เพิ่มประเภทใหม่" value="__add_type__" />
+            </Picker>
+          </View>
+        </View>
+
+        <View style={styles.row}>
+          <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
+            <Text style={styles.label}>ขนาดยา</Text>
+            <TextInput
+              style={styles.input}
+              value={dosage}
+              onChangeText={setDosage}
+              keyboardType="numeric"
+              placeholder="เช่น 500"
+              placeholderTextColor="#999"
+            />
+          </View>
+
+          <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
+            <View style={styles.labelRow}>
+              <Text style={styles.label}>หน่วยยา</Text>
+              <TouchableOpacity
+                style={styles.manageLink}
+                onPress={() => navigation.navigate('ManageUnits')}
+              >
+                <Ionicons name="settings-outline" size={16} color="#4da6ff" />
+                <Text style={styles.manageLinkText}>จัดการ</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.pickerWrapper}>
+              <Picker
+                selectedValue={unitID}
+                onValueChange={(v) => {
+                  if (v === '__add_unit__') return handleAddNavigation('unit');
+                  setUnitID(v === '' ? '' : String(v));
+                }}
+                style={styles.picker}
+              >
+                <Picker.Item label="หน่วย" value="" />
+                {(units || []).map(u => {
+                  const id = extractId(u);
+                  const label = extractLabel(u) || `หน่วย ${id ?? ''}`;
+                  return <Picker.Item key={id ?? JSON.stringify(u)} label={label} value={String(id ?? '')} />;
+                })}
+                <Picker.Item label="+ เพิ่ม" value="__add_unit__" />
+              </Picker>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>หมายเหตุเพิ่มเติม</Text>
           <TextInput
-            style={styles.input}
-            value={cycleUseDays}
-            onChangeText={setCycleUseDays}
-            keyboardType="numeric"
-            placeholder="กรอกจำนวนวันใช้ยา"
-          />
-          <Text style={styles.label}>วันหยุดพัก</Text>
-          <TextInput
-            style={styles.input}
-            value={cycleRestDays}
-            onChangeText={setCycleRestDays}
-            keyboardType="numeric"
-            placeholder="กรอกจำนวนวันหยุดพัก"
+            style={[styles.input, styles.textArea]}
+            value={note}
+            onChangeText={setNote}
+            multiline
+            numberOfLines={3}
+            placeholder="ระบุหมายเหตุ (ถ้ามี)"
+            placeholderTextColor="#999"
           />
         </View>
-      )}
-
-      {frequency === 'monthly' && (
-        <View>
-          <Text style={styles.label}>เลือกวันที่ของเดือน (แตะเพื่อเลือก/ยกเลิก)</Text>
-          <Calendar
-            markedDates={selectedMonthDates}
-            onDayPress={onMonthDayPress}
-            monthFormat={'yyyy MM'}
-            markingType={'simple'}
-          />
-          <Text style={{ marginTop: 8 }}>
-            {Object.keys(selectedMonthDates).length > 0
-              ? `วันที่ที่เลือก: ${Array.from(new Set(Object.keys(selectedMonthDates).map(d => new Date(d).getDate()))).sort((a,b) => a-b).join(', ')}`
-              : 'ยังไม่ได้เลือกวันที่'}
-          </Text>
-        </View>
-      )}
-
-      {/* ...remaining UI: usage meal, pre/post time, default times, date pickers, priority, save/cancel buttons ... */}
-      <Text style={styles.label}>วิธีกินยา</Text>
-      <View style={styles.toggleRow}>
-        {[{ label: 'พร้อมอาหาร', id: 1 }, { label: 'ก่อนอาหาร', id: 2 }, { label: 'หลังอาหาร', id: 3 }].map(opt => (
-          <TouchableOpacity
-            key={opt.id}
-            style={[styles.toggleButton, usageMealID === opt.id && styles.toggleActive]}
-            onPress={() => {
-              setUsageMealID(opt.id);
-              setPrePostTime(null);
-              setCustomTime('');
-            }}
-          >
-            <Text>{opt.label}</Text>
-          </TouchableOpacity>
-        ))}
       </View>
 
-      {(usageMealID === 2 || usageMealID === 3) && (
-        <>
-          <Text style={styles.label}>เลือกเวลาก่อน/หลังอาหาร</Text>
+      {/* Section: ความถี่ */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>⏰ ความถี่การใช้ยา</Text>
+
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>ความถี่ <Text style={styles.required}>*</Text></Text>
+          <View style={styles.pickerWrapper}>
+            <Picker
+              selectedValue={frequency}
+              onValueChange={handleFrequencyChange}
+              mode="dropdown"
+              style={styles.picker}
+            >
+              {frequencyOptions.map((option) => (
+                <Picker.Item key={option.value} label={option.label} value={option.value} />
+              ))}
+            </Picker>
+          </View>
+        </View>
+
+        {(isFrequencyWithCustomTime) && (
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>กรอกจำนวน <Text style={styles.required}>*</Text></Text>
+            <TextInput
+              style={styles.input}
+              value={CustomValue}
+              onChangeText={setCustomValue}
+              keyboardType="numeric"
+              placeholder="กรอกจำนวน"
+              placeholderTextColor="#999"
+            />
+          </View>
+        )}
+
+        {frequency === 'weekly' && (
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>เลือกวันในสัปดาห์ <Text style={styles.required}>*</Text></Text>
+            <View style={styles.weekDaysContainer}>
+              {['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'].map((day, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={[
+                    styles.dayButton,
+                    selectedWeekDays.includes(index + 1) && styles.dayButtonActive
+                  ]}
+                  onPress={() => {
+                    const newSelectedDays = selectedWeekDays.includes(index + 1)
+                      ? selectedWeekDays.filter(item => item !== index + 1)
+                      : [...selectedWeekDays, index + 1];
+                    setSelectedWeekDays(newSelectedDays);
+                  }}
+                >
+                  <Text style={[
+                    styles.dayButtonText,
+                    selectedWeekDays.includes(index + 1) && styles.dayButtonTextActive
+                  ]}>
+                    {day}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {frequency === 'cycle' && (
+          <View style={styles.row}>
+            <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
+              <Text style={styles.label}>วันใช้ยา <Text style={styles.required}>*</Text></Text>
+              <TextInput
+                style={styles.input}
+                value={cycleUseDays}
+                onChangeText={setCycleUseDays}
+                keyboardType="numeric"
+                placeholder="เช่น 7"
+                placeholderTextColor="#999"
+              />
+            </View>
+
+            <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
+              <Text style={styles.label}>วันหยุดพัก <Text style={styles.required}>*</Text></Text>
+              <TextInput
+                style={styles.input}
+                value={cycleRestDays}
+                onChangeText={setCycleRestDays}
+                keyboardType="numeric"
+                placeholder="เช่น 7"
+                placeholderTextColor="#999"
+              />
+            </View>
+          </View>
+        )}
+
+        {frequency === 'monthly' && (
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>เลือกวันที่ของเดือน <Text style={styles.required}>*</Text></Text>
+            <View style={styles.calendarContainer}>
+              <Calendar
+                markedDates={selectedMonthDates}
+                onDayPress={onMonthDayPress}
+                monthFormat={'MMMM yyyy'}
+                markingType={'simple'}
+                theme={{
+                  todayTextColor: '#4da6ff',
+                  selectedDayBackgroundColor: '#4da6ff',
+                  arrowColor: '#4da6ff',
+                }}
+              />
+            </View>
+            {Object.keys(selectedMonthDates).length > 0 && (
+              <View style={styles.selectedDatesInfo}>
+                <Text style={styles.selectedDatesText}>
+                  วันที่เลือก: {Array.from(new Set(Object.keys(selectedMonthDates).map(d => new Date(d).getDate()))).sort((a, b) => a - b).join(', ')}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+      </View>
+
+      {/* Section: วิธีใช้ยา */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>💊 วิธีการใช้ยา</Text>
+
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>วิธีกินยา</Text>
           <View style={styles.toggleRow}>
-            {[15, 30].map((min) => (
+            {[
+              { label: 'พร้อมอาหาร', id: 1, icon: '🍽️' },
+              { label: 'ก่อนอาหาร', id: 2, icon: '⏰' },
+              { label: 'หลังอาหาร', id: 3, icon: '⏱️' }
+            ].map(opt => (
               <TouchableOpacity
-                key={min}
-                style={[styles.toggleButton, prePostTime === min && styles.toggleActive]}
-                onPress={() => { setPrePostTime(min); setCustomTime(''); }}
+                key={opt.id}
+                style={[
+                  styles.usageButton,
+                  usageMealID === opt.id && styles.usageButtonActive
+                ]}
+                onPress={() => {
+                  setUsageMealID(opt.id);
+                  setPrePostTime(null);
+                  setCustomTime('');
+                }}
               >
-                <Text>{min} นาที</Text>
+                <Text style={styles.usageIcon}>{opt.icon}</Text>
+                <Text style={[
+                  styles.usageButtonText,
+                  usageMealID === opt.id && styles.usageButtonTextActive
+                ]}>
+                  {opt.label}
+                </Text>
               </TouchableOpacity>
             ))}
+          </View>
+        </View>
+
+        {(usageMealID === 2 || usageMealID === 3) && (
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>
+              เวลา{usageMealID === 2 ? 'ก่อน' : 'หลัง'}อาหาร <Text style={styles.required}>*</Text>
+            </Text>
+            <View style={styles.toggleRow}>
+              {[15, 30].map((min) => (
+                <TouchableOpacity
+                  key={min}
+                  style={[
+                    styles.timeOptionButton,
+                    prePostTime === min && styles.timeOptionButtonActive
+                  ]}
+                  onPress={() => { setPrePostTime(min); setCustomTime(''); }}
+                >
+                  <Text style={[
+                    styles.timeOptionText,
+                    prePostTime === min && styles.timeOptionTextActive
+                  ]}>
+                    {min} นาที
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
+                style={[
+                  styles.timeOptionButton,
+                  prePostTime === 'custom' && styles.timeOptionButtonActive
+                ]}
+                onPress={() => setPrePostTime('custom')}
+              >
+                <Text style={[
+                  styles.timeOptionText,
+                  prePostTime === 'custom' && styles.timeOptionTextActive
+                ]}>
+                  กำหนดเอง
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {prePostTime === 'custom' && (
+              <TextInput
+                placeholder="ระบุเวลา (นาที)"
+                style={[styles.input, { marginTop: 10 }]}
+                keyboardType="numeric"
+                value={customTime}
+                onChangeText={setCustomTime}
+                placeholderTextColor="#999"
+              />
+            )}
+          </View>
+        )}
+
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>มื้อ/เวลาที่กินยา <Text style={styles.required}>*</Text></Text>
+          <View style={styles.mealTimesContainer}>
+            {defaultTimes.map(time => (
+              <TouchableOpacity
+                key={time.DefaultTime_ID}
+                onPress={() => toggleTime(time.DefaultTime_ID)}
+                style={[
+                  styles.mealTimeButton,
+                  selectedTimeIds.includes(time.DefaultTime_ID) && styles.mealTimeButtonActive
+                ]}
+              >
+                <View style={styles.mealTimeContent}>
+                  <Text style={[
+                    styles.mealTimeLabel,
+                    selectedTimeIds.includes(time.DefaultTime_ID) && styles.mealTimeLabelActive
+                  ]}>
+                    {convertMeal(time.MealID)}
+                  </Text>
+                  <Text style={[
+                    styles.mealTimeTime,
+                    selectedTimeIds.includes(time.DefaultTime_ID) && styles.mealTimeTimeActive
+                  ]}>
+                    {time.Time.slice(0, 5)}
+                  </Text>
+                </View>
+                {selectedTimeIds.includes(time.DefaultTime_ID) && (
+                  <Text style={styles.checkmark}>✓</Text>
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </View>
+
+      {/* Section: ระยะเวลา */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>📅 ระยะเวลาการใช้ยา</Text>
+
+        <View style={styles.dateRow}>
+          <View style={styles.dateItem}>
+            <Text style={styles.label}>วันเริ่มต้น</Text>
             <TouchableOpacity
-              style={[styles.toggleButton, prePostTime === 'custom' && styles.toggleActive]}
-              onPress={() => setPrePostTime('custom')}
+              style={styles.dateButton}
+              onPress={() => setShowStartPicker(true)}
             >
-              <Text>เพิ่มเอง</Text>
+              <Text style={styles.dateButtonText}>
+                {startDate.toLocaleDateString('th-TH', {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric'
+                })}
+              </Text>
             </TouchableOpacity>
           </View>
 
-          {prePostTime === 'custom' && (
-            <TextInput
-              placeholder="ระบุเวลา (นาที)"
-              style={styles.input}
-              keyboardType="numeric"
-              value={customTime}
-              onChangeText={setCustomTime}
-            />
-          )}
-        </>
-      )}
+          <View style={styles.dateItem}>
+            <Text style={styles.label}>วันสิ้นสุด</Text>
+            <TouchableOpacity
+              style={styles.dateButton}
+              onPress={() => setShowEndPicker(true)}
+            >
+              <Text style={styles.dateButtonText}>
+                {endDate.toLocaleDateString('th-TH', {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric'
+                })}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
-      <Text style={styles.label}>มื้อ/เวลาที่กินยา</Text>
-      {defaultTimes.map(time => (
-        <TouchableOpacity
-          key={time.DefaultTime_ID}
-          onPress={() => toggleTime(time.DefaultTime_ID)}
-          style={[ styles.timeButton, selectedTimeIds.includes(time.DefaultTime_ID) && styles.selected ]}
-        >
-          <Text>{`${convertMeal(time.MealID)} (${time.Time.slice(0, 5)})`}</Text>
-        </TouchableOpacity>
-      ))}
-
-      <Text style={styles.label}>ระยะเวลา</Text>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-        <Button title={`เริ่มต้น ${startDate.toLocaleDateString('th-TH')}`} onPress={() => setShowStartPicker(true)} />
-        <Button title={`สิ้นสุด ${endDate.toLocaleDateString('th-TH')}`} onPress={() => setShowEndPicker(true)} />
+        {showStartPicker && (
+          <DateTimePicker
+            value={startDate}
+            mode="date"
+            onChange={(e, selectedDate) => {
+              setShowStartPicker(false);
+              if (selectedDate) setStartDate(selectedDate);
+            }}
+          />
+        )}
+        {showEndPicker && (
+          <DateTimePicker
+            value={endDate}
+            mode="date"
+            onChange={(e, selectedDate) => {
+              setShowEndPicker(false);
+              if (selectedDate) setEndDate(selectedDate);
+            }}
+          />
+        )}
       </View>
 
-      {showStartPicker && (
-        <DateTimePicker
-          value={startDate}
-          mode="date"
-          onChange={(e, selectedDate) => {
-            setShowStartPicker(false);
-            if (selectedDate) setStartDate(selectedDate);
-          }}
-        />
-      )}
-      {showEndPicker && (
-        <DateTimePicker
-          value={endDate}
-          mode="date"
-          onChange={(e, selectedDate) => {
-            setShowEndPicker(false);
-            if (selectedDate) setEndDate(selectedDate);
-          }}
-        />
-      )}
+      {/* Section: ความสำคัญ */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>⚠️ ระดับความสำคัญ</Text>
 
-      <Text style={styles.sectionLabel}>ความสำคัญ</Text>
-      <View style={styles.toggleRow}>
-        <TouchableOpacity
-          style={[styles.priorityButton, priority === 'สูง' && styles.priorityHigh]}
-          onPress={() => setPriority('สูง')}
-        >
-          <Text style={styles.priorityText}>สูง</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.priorityButton, priority === 'ปกติ' && styles.priorityNormal]}
-          onPress={() => setPriority('ปกติ')}
-        >
-          <Text style={styles.priorityText}>ปกติ</Text>
-        </TouchableOpacity>
+        <View style={styles.priorityRow}>
+          <TouchableOpacity
+            style={[
+              styles.priorityButton,
+              priority === 'สูง' && styles.priorityHighActive
+            ]}
+            onPress={() => setPriority('สูง')}
+          >
+            <Text style={[
+              styles.priorityButtonText,
+              priority === 'สูง' && styles.priorityButtonTextActive
+            ]}>
+              🔴 สูง
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.priorityButton,
+              priority === 'ปกติ' && styles.priorityNormalActive
+            ]}
+            onPress={() => setPriority('ปกติ')}
+          >
+            <Text style={[
+              styles.priorityButtonText,
+              priority === 'ปกติ' && styles.priorityButtonTextActive
+            ]}>
+              🟢 ปกติ
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      <View style={{ marginTop: 0 }}>
+      {/* Action Buttons */}
+      <View style={styles.actionButtons}>
         <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-          <Text style={styles.saveText}>บันทึก</Text>
+          <Text style={styles.saveButtonText}>💾 บันทึก</Text>
         </TouchableOpacity>
+
         <TouchableOpacity style={styles.cancelButton} onPress={() => navigation.goBack()}>
-          <Text style={styles.cancelText}>ยกเลิก</Text>
+          <Text style={styles.cancelButtonText}>✕ ยกเลิก</Text>
         </TouchableOpacity>
       </View>
+
+      <View style={{ height: 40 }} />
     </ScrollView>
   );
 };
 
-// ...existing styles...
 const styles = StyleSheet.create({
-  container: { padding: 20, backgroundColor: '#fff' },
-  label: { fontWeight: 'bold', marginBottom: 6, marginTop: 15 },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 10,
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f7fa',
   },
-  toggleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  toggleButton: {
-    padding: 10,
-    borderRadius: 20,
-    backgroundColor: '#eee',
-    marginRight: 10,
-    marginBottom: 10,
-  },
-  toggleActive: { backgroundColor: '#aef' },
-  timeButton: {
-    padding: 10,
-    backgroundColor: '#eee',
-    marginVertical: 5,
-    borderRadius: 8,
-  },
-  selected: { backgroundColor: '#aef' },
-  saveButton: {
+  header: {
     backgroundColor: '#4da6ff',
-    padding: 15,
-    borderRadius: 25,
-    marginTop: 20,
+    padding: 24,
+    paddingTop: 20,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    marginBottom: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: '#e6f2ff',
+  },
+  section: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 20,
+    borderRadius: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.08,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#2c3e50',
+    marginBottom: 16,
+  },
+  inputContainer: {
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#34495e',
+    marginBottom: 8,
+  },
+  required: {
+    color: '#e74c3c',
+  },
+  input: {
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#e1e8ed',
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 16,
+    color: '#2c3e50',
+  },
+  textArea: {
+    height: 80,
+    textAlignVertical: 'top',
+  },
+  pickerWrapper: {
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#e1e8ed',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  picker: {
+    height: 50,
+  },
+  row: {
+    flexDirection: 'row',
     alignItems: 'center',
   },
-  priorityHigh: { backgroundColor: '#f44336' },
-  priorityNormal: { backgroundColor: '#4CAF50' },
-  priorityText: { color: '#000000ff', fontWeight: 'bold' },
-  saveText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-  cancelButton: {
-    marginTop: 10,
-    padding: 15,
-    borderRadius: 25,
-    backgroundColor: '#ccc',
-    alignItems: 'center',
-    marginBottom: 60,
+  toggleRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
   },
-  sectionLabel: { fontWeight: 'bold', marginTop: 15, marginBottom: 8 },
+  usageButton: {
+    flex: 1,
+    minWidth: '30%',
+    backgroundColor: '#f8f9fa',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#e1e8ed',
+    alignItems: 'center',
+  },
+  usageButtonActive: {
+    backgroundColor: '#e6f2ff',
+    borderColor: '#4da6ff',
+  },
+  usageIcon: {
+    fontSize: 24,
+    marginBottom: 4,
+  },
+  usageButtonText: {
+    fontSize: 13,
+    color: '#7f8c8d',
+    fontWeight: '600',
+  },
+  usageButtonTextActive: {
+    color: '#4da6ff',
+  },
+  timeOptionButton: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#e1e8ed',
+    alignItems: 'center',
+  },
+  timeOptionButtonActive: {
+    backgroundColor: '#e6f2ff',
+    borderColor: '#4da6ff',
+  },
+  timeOptionText: {
+    fontSize: 14,
+    color: '#7f8c8d',
+    fontWeight: '600',
+  },
+  timeOptionTextActive: {
+    color: '#4da6ff',
+  },
+  weekDaysContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  dayButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#f8f9fa',
+    borderWidth: 2,
+    borderColor: '#e1e8ed',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dayButtonActive: {
+    backgroundColor: '#4da6ff',
+    borderColor: '#4da6ff',
+  },
+  dayButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#7f8c8d',
+  },
+  dayButtonTextActive: {
+    color: '#fff',
+  },
+  calendarContainer: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e1e8ed',
+  },
+  selectedDatesInfo: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#e6f2ff',
+    borderRadius: 8,
+  },
+  selectedDatesText: {
+    fontSize: 14,
+    color: '#2c3e50',
+  },
+  mealTimesContainer: {
+    gap: 10,
+  },
+  mealTimeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f8f9fa',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#e1e8ed',
+  },
+  mealTimeButtonActive: {
+    backgroundColor: '#e6f2ff',
+    borderColor: '#4da6ff',
+  },
+  mealTimeContent: {
+    flex: 1,
+  },
+  mealTimeLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2c3e50',
+    marginBottom: 4,
+  },
+  mealTimeLabelActive: {
+    color: '#4da6ff',
+  },
+  mealTimeTime: {
+    fontSize: 14,
+    color: '#7f8c8d',
+  },
+  mealTimeTimeActive: {
+    color: '#4da6ff',
+  },
+  checkmark: {
+    fontSize: 20,
+    color: '#4da6ff',
+    fontWeight: 'bold',
+  },
+  dateRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  dateItem: {
+    flex: 1,
+  },
+  dateButton: {
+    backgroundColor: '#f8f9fa',
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e1e8ed',
+    alignItems: 'center',
+  },
+  dateButtonText: {
+    fontSize: 14,
+    color: '#2c3e50',
+    fontWeight: '600',
+  },
+  priorityRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
   priorityButton: {
     flex: 1,
-    padding: 12,
-    borderRadius: 20,
+    paddingVertical: 16,
+    borderRadius: 12,
+    backgroundColor: '#f8f9fa',
+    borderWidth: 2,
+    borderColor: '#e1e8ed',
     alignItems: 'center',
-    marginHorizontal: 5,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 20,
+  priorityHighActive: {
+    backgroundColor: '#fee',
+    borderColor: '#e74c3c',
   },
-  timeText: {
-    fontSize: 18,
-    marginBottom: 20,
+  priorityNormalActive: {
+    backgroundColor: '#efe',
+    borderColor: '#27ae60',
   },
-  button: {
-    backgroundColor: '#4CAF50',
-    padding: 15,
-    borderRadius: 5,
-    marginBottom: 20,
-  },
-  buttonText: {
-    color: '#fff',
+  priorityButtonText: {
     fontSize: 16,
+    fontWeight: '700',
+    color: '#7f8c8d',
+  },
+  priorityButtonTextActive: {
+    color: '#2c3e50',
+  },
+  actionButtons: {
+    marginHorizontal: 16,
+    marginBottom: 20,
+    gap: 12,
+  },
+  saveButton: {
+    backgroundColor: '#4da6ff',
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#4da6ff',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  cancelButton: {
+    backgroundColor: '#fff',
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#e1e8ed',
+  },
+  cancelButtonText: {
+    color: '#7f8c8d',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  labelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  manageLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  manageLinkText: {
+    fontSize: 13,
+    color: '#4da6ff',
+    fontWeight: '600',
   },
 });
-// ...existing code...
+
 export default AddMedicationScreen;
