@@ -49,33 +49,99 @@ app.post('/api/register', async (req, res) => {
   }
 
   try {
-    // เช็คว่า email ซ้ำมั้ย
-    const checkSql = 'SELECT * FROM users WHERE Email = ?';
-    db.query(checkSql, [email], async (err, results) => {
-      if (err) return res.status(500).json({ error: err });
+    // เข้ารหัสรหัสผ่าน
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-      if (results.length > 0) {
-        return res.status(400).json({ error: 'อีเมลนี้ถูกใช้แล้ว' });
+    // บันทึกข้อมูลผู้ใช้ใน database
+    const sql = `
+      INSERT INTO users (Name, Email, Phone, Gender, BirthDate, BloodType, Password, CreatedAt) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+    `;
+
+    db.query(
+      sql,
+      [name, email, phone, gender, birthDate, bloodType, hashedPassword],
+      (err, result) => {
+        if (err) {
+          console.error('❌ Database error:', err);
+          
+          // ตรวจสอบ duplicate email
+          if (err.code === 'ER_DUP_ENTRY') {
+            return res.status(409).json({ error: 'อีเมลนี้ถูกใช้งานแล้ว' });
+          }
+          
+          return res.status(500).json({ error: 'ไม่สามารถสมัครสมาชิกได้' });
+        }
+
+        const newUserId = result.insertId;
+        console.log('✅ User registered successfully:', newUserId);
+
+        // ✅ สร้าง Default Meal Times สำหรับ user ใหม่
+        const defaultMealTimes = [
+          { MealID: 1, Time: '08:00:00', MealName: 'เช้า' },      // เช้า
+          { MealID: 2, Time: '12:00:00', MealName: 'เที่ยง' },   // เที่ยง
+          { MealID: 3, Time: '18:00:00', MealName: 'เย็น' },     // เย็น
+          { MealID: 4, Time: '21:00:00', MealName: 'ก่อนนอน' }  // ก่อนนอน
+        ];
+
+        const mealTimePromises = defaultMealTimes.map(({ MealID, Time }) => {
+          return new Promise((resolve, reject) => {
+            const insertMealTimeSql = `
+              INSERT INTO userdefaultmealtime (UserID, MealID, Time) 
+              VALUES (?, ?, ?)
+            `;
+            
+            db.query(insertMealTimeSql, [newUserId, MealID, Time], (err, result) => {
+              if (err) {
+                console.error(`❌ Failed to create meal time for MealID ${MealID}:`, err);
+                reject(err);
+              } else {
+                console.log(`✅ Created default meal time: MealID ${MealID} at ${Time}`);
+                resolve(result);
+              }
+            });
+          });
+        });
+
+        // รอให้สร้าง meal times ทั้งหมดเสร็จ
+        Promise.all(mealTimePromises)
+          .then(() => {
+            console.log('✅ All default meal times created successfully for user:', newUserId);
+            
+            res.status(201).json({
+              success: true,
+              message: 'สมัครสมาชิกสำเร็จ',
+              userId: newUserId,
+              user: {
+                id: newUserId,
+                name,
+                email,
+                phone,
+                gender,
+                birthDate,
+                bloodType
+              }
+            });
+          })
+          .catch(mealTimeErr => {
+            console.error('❌ Error creating default meal times:', mealTimeErr);
+            
+            // ถ้าสร้าง meal times ไม่สำเร็จ ให้ลบ user ที่สร้างไปแล้ว
+            db.query('DELETE FROM users WHERE UserID = ?', [newUserId], (deleteErr) => {
+              if (deleteErr) {
+                console.error('❌ Failed to rollback user creation:', deleteErr);
+              }
+            });
+            
+            res.status(500).json({ 
+              error: 'สมัครสมาชิกสำเร็จ แต่ไม่สามารถสร้างเวลาอาหารเริ่มต้นได้' 
+            });
+          });
       }
-
-      // เข้ารหัสรหัสผ่าน
-      const saltRounds = 10;
-      const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-      // บันทึกผู้ใช้
-      const insertSql = `
-        INSERT INTO users (Name, Email, Phone, Gender, BirthDate, BloodType, Password)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `;
-      db.query(insertSql, [name, email, phone, gender, birthDate, bloodType, hashedPassword], (err2, result) => {
-        if (err2) return res.status(500).json({ error: err2 });
-
-        res.status(201).json({ message: 'สมัครสมาชิกสำเร็จ', userId: result.insertId });
-      });
-    });
+    );
   } catch (err) {
-    console.error('❌ Register error:', err);
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในระบบ' });
+    console.error('❌ Server error:', err);
+    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการสมัครสมาชิก' });
   }
 });
 
@@ -362,6 +428,7 @@ app.get('/api/medications', (req, res) => {
   const sql = `
     SELECT
       m.*,
+      m.IsActive,
       dg.GroupName,
       mt.TypeName,
       du.DosageType,
@@ -403,6 +470,7 @@ app.get('/api/medications', (req, res) => {
 
       return {
         ...r,
+        IsActive: r.IsActive === 1,
         WeekDays: weekDays,
         MonthDays: monthDays,
         CustomValue: r.CustomValue === null ? null : r.CustomValue,
@@ -545,9 +613,72 @@ app.get('/api/types', (req, res) => {
   });
 });
 
-app.get('/api/userdefaultmealtime', (req, res) => {
-  db.query('SELECT * FROM userdefaultmealtime', (err, results) => {
-    if (err) return res.status(500).json({ error: err });
+app.get('/api/userdefaultmealtime/:userId', (req, res) => {
+  const userId = req.params.userId;
+
+  if (!userId) {
+    return res.status(400).json({ error: 'User ID is required' });
+  }
+
+  const query = `
+    SELECT 
+      udt.DefaultTime_ID,
+      udt.UserID,
+      udt.MealID,
+      udt.Time,
+      ms.MealName
+    FROM userdefaultmealtime udt
+    JOIN mealschedule ms ON udt.MealID = ms.MealID
+    WHERE udt.UserID = ?
+    ORDER BY udt.MealID
+  `;
+
+  db.query(query, [userId], (err, results) => {
+    if (err) {
+      console.error('❌ Error fetching user meal times:', err);
+      return res.status(500).json({ error: 'Failed to fetch meal times' });
+    }
+
+    if (results.length === 0) {
+      console.log('⚠️ No meal times found for user:', userId);
+      
+      // สร้างค่าเริ่มต้นถ้ายังไม่มี
+      const defaultTimes = [
+        { MealID: 1, Time: '08:00:00' },
+        { MealID: 2, Time: '12:00:00' },
+        { MealID: 3, Time: '18:00:00' },
+        { MealID: 4, Time: '21:00:00' }
+      ];
+
+      const insertPromises = defaultTimes.map(({ MealID, Time }) => {
+        return new Promise((resolve, reject) => {
+          db.query(
+            'INSERT INTO userdefaultmealtime (UserID, MealID, Time) VALUES (?, ?, ?)',
+            [userId, MealID, Time],
+            (err, result) => {
+              if (err) reject(err);
+              else resolve(result);
+            }
+          );
+        });
+      });
+
+      Promise.all(insertPromises)
+        .then(() => {
+          db.query(query, [userId], (err2, results2) => {
+            if (err2) return res.status(500).json({ error: 'Failed to fetch meal times' });
+            res.json(results2);
+          });
+        })
+        .catch(err => {
+          console.error('❌ Error creating default meal times:', err);
+          res.status(500).json({ error: 'Failed to create default meal times' });
+        });
+
+      return;
+    }
+
+    console.log(`✅ Fetched ${results.length} meal times for user ${userId}`);
     res.json(results);
   });
 });
@@ -600,6 +731,7 @@ app.get('/api/reminders/today', (req, res) => {
     SELECT
       m.MedicationID,
       m.Name AS name,
+      m.IsActive,
       ms.MealName,
       udt.Time,
       udt.DefaultTime_ID,
@@ -636,6 +768,7 @@ app.get('/api/reminders/today', (req, res) => {
     LEFT JOIN dosageunit du ON m.UnitID = du.UnitID
     WHERE
       m.UserID = ?
+      AND m.IsActive = 1
   `;
 
   db.query(sql, [dateParam, userId], (err, rows) => {
@@ -873,44 +1006,335 @@ app.get('/api/reminders/today', (req, res) => {
   });
 });
 
+// ✅ ฟังก์ชันอัปเดต medicationlog จาก medicationschedule
+const updateMedicationLog = async (medicationId, date) => {
+  try {
+    // นับจำนวน schedule ทั้งหมดในวันนั้น
+    const [countResult] = await db.promise().query(
+      `SELECT COUNT(*) as total FROM medicationschedule 
+       WHERE MedicationID = ? AND Date = ?`,
+      [medicationId, date]
+    );
+    const totalCount = countResult[0]?.total || 0;
 
+    // นับตามสถานะละเอียด
+    const [statusResult] = await db.promise().query(
+      `SELECT 
+         SUM(CASE WHEN Status = 'กินแล้ว' AND (IsLate = 0 OR LateMinutes = 0) THEN 1 ELSE 0 END) as onTime,
+         SUM(CASE WHEN Status = 'กินแล้ว' AND IsLate = 1 AND LateMinutes > 0 THEN 1 ELSE 0 END) as late,
+         SUM(CASE WHEN Status = 'กินแล้ว' THEN 1 ELSE 0 END) as taken,
+         SUM(CASE WHEN Status = 'ข้าม' THEN 1 ELSE 0 END) as skipped,
+         SUM(CASE WHEN Status = 'ไม่ระบุ' THEN 1 ELSE 0 END) as unknown,
+         AVG(CASE WHEN Status = 'กินแล้ว' AND LateMinutes > 0 THEN LateMinutes ELSE NULL END) as avgLateMinutes
+       FROM medicationschedule 
+       WHERE MedicationID = ? AND Date = ?`,
+      [medicationId, date]
+    );
 
+    const onTimeCount = parseInt(statusResult[0]?.onTime) || 0;
+    const lateCount = parseInt(statusResult[0]?.late) || 0;
+    const takenCount = parseInt(statusResult[0]?.taken) || 0;
+    const skippedCount = parseInt(statusResult[0]?.skipped) || 0;
+    const unknownCount = parseInt(statusResult[0]?.unknown) || 0;
+    const avgLateMinutes = parseFloat(statusResult[0]?.avgLateMinutes || 0).toFixed(2);
+
+    // คำนวณ %
+    const perCount = totalCount > 0 
+      ? parseFloat(((takenCount / totalCount) * 100).toFixed(2)) 
+      : 0;
+
+    // ดึง ScheduleID ล่าสุดที่มีการเปลี่ยนแปลง
+    const [latestSchedule] = await db.promise().query(
+      `SELECT ScheduleID, Status, SideEffects FROM medicationschedule 
+       WHERE MedicationID = ? AND Date = ? 
+       ORDER BY RecordedAt DESC, ScheduleID DESC LIMIT 1`,
+      [medicationId, date]
+    );
+
+    const scheduleId = latestSchedule[0]?.ScheduleID || null;
+    const currentStatus = latestSchedule[0]?.Status || 'รอกิน';
+    const sideEffects = latestSchedule[0]?.SideEffects || null;
+
+    // บันทึก/อัปเดต log
+    await db.promise().query(
+      `INSERT INTO medicationlog 
+       (MedicationID, ScheduleID, \`Count\`, OnTimeCount, LateCount, TakenCount, SkippedCount, UnknownCount,
+        PerCount, AvgLateMinutes, date, Status, SideEffects, UpdatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE
+         ScheduleID = VALUES(ScheduleID),
+         \`Count\` = VALUES(\`Count\`),
+         OnTimeCount = VALUES(OnTimeCount),
+         LateCount = VALUES(LateCount),
+         TakenCount = VALUES(TakenCount),
+         SkippedCount = VALUES(SkippedCount),
+         UnknownCount = VALUES(UnknownCount),
+         PerCount = VALUES(PerCount),
+         AvgLateMinutes = VALUES(AvgLateMinutes),
+         Status = VALUES(Status),
+         SideEffects = VALUES(SideEffects),
+         UpdatedAt = NOW()`,
+      [
+        medicationId, 
+        scheduleId, 
+        totalCount, 
+        onTimeCount, 
+        lateCount, 
+        takenCount, 
+        skippedCount, 
+        unknownCount,
+        perCount, 
+        avgLateMinutes, 
+        date, 
+        currentStatus, 
+        sideEffects
+      ]
+    );
+
+    console.log('✅ Updated medicationlog:', {
+      medicationId,
+      date,
+      totalCount,
+      onTimeCount,
+      lateCount,
+      takenCount,
+      skippedCount,
+      unknownCount,
+      perCount,
+      avgLateMinutes
+    });
+
+    return {
+      success: true,
+      perCount,
+      totalCount,
+      onTimeCount,
+      lateCount,
+      takenCount,
+      skippedCount,
+      unknownCount,
+      avgLateMinutes
+    };
+  } catch (error) {
+    console.error('❌ Error updating medication log:', error);
+    throw error;
+  }
+};
+
+// ✅ PATCH /api/schedule/:id/status - อัปเดตสถานะการกินยา
+app.patch('/api/schedule/:id/status', async (req, res) => {
+  const scheduleId = req.params.id;
+  const { status, sideEffects, actualTime, recordedAt } = req.body;
+  
+  console.log('🔄 Update schedule status:', { scheduleId, status, actualTime });
+  
+  if (!status) {
+    return res.status(400).json({ error: 'Status is required' });
+  }
+  
+  const validStatuses = ['รอกิน', 'กินแล้ว', 'ข้าม', 'ไม่ระบุ'];
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({ error: 'Invalid status value' });
+  }
+  
+  try {
+    // ดึงข้อมูล scheduled time และ MedicationID
+    const [rows] = await db.promise().query(
+      'SELECT MedicationID, Date, Time FROM medicationschedule WHERE ScheduleID = ?', 
+      [scheduleId]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Schedule not found' });
+    }
+    
+    const { MedicationID, Date: scheduleDate, Time: scheduledTime } = rows[0];
+    
+    let lateMinutes = null;
+    let isLate = 0;
+    
+    // คำนวณ Late เฉพาะเมื่อสถานะเป็น "กินแล้ว"
+    if (status === 'กินแล้ว' && actualTime && scheduledTime) {
+      lateMinutes = calculateLateMinutes(scheduledTime, actualTime);
+      isLate = lateMinutes > 0 ? 1 : 0;
+    }
+    
+    // อัปเดต schedule
+    await db.promise().query(
+      `UPDATE medicationschedule 
+       SET Status = ?, 
+           SideEffects = ?, 
+           ActualTime = ?,
+           RecordedAt = ?,
+           LateMinutes = ?,
+           IsLate = ?
+       WHERE ScheduleID = ?`,
+      [status, sideEffects || null, actualTime || null, recordedAt || new Date().toISOString(), 
+       lateMinutes, isLate, scheduleId]
+    );
+    
+    // ✅ อัปเดต medicationlog
+    const logResult = await updateMedicationLog(MedicationID, scheduleDate);
+    
+    console.log('✅ Schedule and log updated:', { 
+      scheduleId, 
+      status, 
+      lateMinutes, 
+      isLate,
+      logResult 
+    });
+    
+    res.json({ 
+      success: true, 
+      message: 'Status updated successfully',
+      scheduleId,
+      status,
+      lateMinutes,
+      isLate,
+      log: logResult
+    });
+  } catch (error) {
+    console.error('❌ Update schedule status error:', error);
+    res.status(500).json({ error: 'Database error', details: error.message });
+  }
+});
+
+// ✅ ฟังก์ชัน Batch Update Log สำหรับทุกยาในวันที่กำหนด
+const batchUpdateLogs = async (date) => {
+  try {
+    console.log(`🔄 Batch updating logs for date: ${date}`);
+    
+    // ดึงรายการยาทั้งหมดที่มี schedule ในวันนั้น
+    const [medications] = await db.promise().query(
+      `SELECT DISTINCT MedicationID 
+       FROM medicationschedule 
+       WHERE Date = ?`,
+      [date]
+    );
+    
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (const { MedicationID } of medications) {
+      try {
+        await updateMedicationLog(MedicationID, date);
+        successCount++;
+      } catch (error) {
+        console.error(`❌ Failed to update log for MedicationID ${MedicationID}:`, error);
+        errorCount++;
+      }
+    }
+    
+    console.log(`✅ Batch update completed: ${successCount} success, ${errorCount} errors`);
+  } catch (error) {
+    console.error('❌ Batch update error:', error);
+  }
+};
+
+// ✅ เรียก batch update ทุกเที่ยงคืน (00:00)
+const scheduleBatchUpdate = () => {
+  const now = new Date();
+  const tonight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+  const msUntilMidnight = tonight - now;
+  
+  setTimeout(() => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const dateStr = yesterday.toISOString().split('T')[0];
+    
+    batchUpdateLogs(dateStr);
+    
+    // ตั้งเวลาสำหรับวันถัดไป
+    setInterval(() => {
+      const today = new Date();
+      today.setDate(today.getDate() - 1);
+      const todayStr = today.toISOString().split('T')[0];
+      batchUpdateLogs(todayStr);
+    }, 24 * 60 * 60 * 1000); // ทุก 24 ชม.
+  }, msUntilMidnight);
+  
+  console.log(`⏰ Scheduled batch update at midnight (in ${Math.round(msUntilMidnight / 1000 / 60)} minutes)`);
+};
+
+// เรียกตอน start server
+scheduleBatchUpdate();
 
 
 // PATCH /api/schedule/:id/status  { status: 'กินแล้ว' | 'ยังไม่กิน' }
-app.patch('/api/schedule/:id/status', (req, res) => {
-  const scheduleId = req.params.id;
-  const { status, sideEffects, actualTime, recordedAt } = req.body;
-
-  // ปรับรูปแบบ actualTime ให้เป็น HH:MM:SS ถ้าได้มาแค่ HH:MM
-  const normalizeTime = (t) => {
-    if (!t) return null;
-    const parts = String(t).split(':').map(p => p.trim());
-    if (parts.length === 1) return null;
-    if (parts.length === 2) parts.push('00');
-    // pad
-    const hh = parts[0].padStart(2, '0');
-    const mm = parts[1].padStart(2, '0');
-    const ss = (parts[2] || '00').padStart(2, '0');
-    return `${hh}:${mm}:${ss}`;
-  };
-
-  const actualTimeSql = normalizeTime(actualTime);
-  const recordedAtSql = recordedAt ? new Date(recordedAt) : new Date();
-
-  const sql = `
-    UPDATE medicationschedule
-    SET Status = ?, SideEffects = ?, ActualTime = ?, RecordedAt = ?
-    WHERE ScheduleID = ?
-  `;
-  const params = [status, sideEffects || null, actualTimeSql, recordedAtSql, scheduleId];
-
-  db.query(sql, params, (err, result) => {
+app.patch('/api/medications/:id/toggle-active', (req, res) => {
+  const medicationId = req.params.id;
+  const { isActive } = req.body; // true = active, false = inactive
+  
+  console.log('🔄 Toggle active:', { medicationId, isActive });
+  
+  const sql = 'UPDATE medication SET IsActive = ? WHERE MedicationID = ?';
+  db.query(sql, [isActive ? 1 : 0, medicationId], (err, result) => {
     if (err) {
-      console.error('Error updating schedule status:', err);
-      return res.status(500).json({ error: 'Database error' });
+      console.error('❌ Toggle active error:', err);
+      return res.status(500).json({ error: 'Database error', details: err.message });
     }
-    return res.json({ success: true, affectedRows: result.affectedRows });
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Medication not found' });
+    }
+    
+    res.json({ 
+      success: true, 
+      isActive: isActive, 
+      message: isActive ? 'เปิดการแจ้งเตือนแล้ว' : 'ปิดการแจ้งเตือนแล้ว' 
+    });
+  });
+});
+
+// ✅ GET /api/schedule/:id - ดึงข้อมูล schedule เดียว (สำหรับ verify)
+app.get('/api/schedule/:id', (req, res) => {
+  const scheduleId = req.params.id;
+  
+  const sql = `
+    SELECT 
+      s.*,
+      m.Name as MedicationName,
+      m.Dosage,
+      du.DosageType,
+      mt.TypeName
+    FROM medicationschedule s
+    JOIN medication m ON s.MedicationID = m.MedicationID
+    LEFT JOIN dosageunit du ON m.UnitID = du.UnitID
+    LEFT JOIN medicationtype mt ON m.TypeID = mt.TypeID
+    WHERE s.ScheduleID = ?
+  `;
+  
+  db.query(sql, [scheduleId], (err, result) => {
+    if (err) {
+      console.error('❌ Get schedule error:', err);
+      return res.status(500).json({ error: 'Database error', details: err.message });
+    }
+    
+    if (result.length === 0) {
+      return res.status(404).json({ error: 'Schedule not found' });
+    }
+    
+    res.json(result[0]);
+  });
+});
+
+// ✅ DELETE /api/schedule/:id - ลบ schedule (ถ้าต้องการ)
+app.delete('/api/schedule/:id', (req, res) => {
+  const scheduleId = req.params.id;
+  
+  const sql = 'DELETE FROM medicationschedule WHERE ScheduleID = ?';
+  
+  db.query(sql, [scheduleId], (err, result) => {
+    if (err) {
+      console.error('❌ Delete schedule error:', err);
+      return res.status(500).json({ error: 'Database error', details: err.message });
+    }
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Schedule not found' });
+    }
+    
+    res.json({ success: true, message: 'Schedule deleted successfully' });
   });
 });
 
@@ -987,6 +1411,162 @@ app.get('/api/meal-times/:id', (req, res) => {
     // ส่งข้อมูลกลับไปยัง frontend
     res.json(mealTimes);
   });
+});
+
+// ✅ GET /api/meal-times/:userId - ดึงเวลาอาหารของ user
+app.get('/api/meal-times/:userId', (req, res) => {
+  const userId = req.params.userId;
+
+  if (!userId) {
+    return res.status(400).json({ error: 'User ID is required' });
+  }
+
+  const query = `
+    SELECT 
+      udt.MealID,
+      ms.MealName,
+      udt.Time,
+      udt.DefaultTime_ID
+    FROM userdefaultmealtime udt
+    JOIN mealschedule ms ON udt.MealID = ms.MealID
+    WHERE udt.UserID = ?
+    ORDER BY udt.MealID
+  `;
+
+  db.query(query, [userId], (err, results) => {
+    if (err) {
+      console.error('❌ Database query error:', err);
+      return res.status(500).json({ error: 'Failed to fetch meal times' });
+    }
+
+    if (results.length === 0) {
+      console.log('⚠️ No meal times found for user:', userId);
+      
+      // สร้างค่าเริ่มต้นถ้าไม่มีข้อมูล
+      const defaultTimes = [
+        { MealID: 1, Time: '08:00:00' }, // เช้า
+        { MealID: 2, Time: '12:00:00' }, // เที่ยง
+        { MealID: 3, Time: '18:00:00' }, // เย็น
+        { MealID: 4, Time: '21:00:00' }  // ก่อนนอน
+      ];
+
+      const insertPromises = defaultTimes.map(({ MealID, Time }) => {
+        return new Promise((resolve, reject) => {
+          db.query(
+            'INSERT INTO userdefaultmealtime (UserID, MealID, Time) VALUES (?, ?, ?)',
+            [userId, MealID, Time],
+            (err, result) => {
+              if (err) reject(err);
+              else resolve(result);
+            }
+          );
+        });
+      });
+
+      Promise.all(insertPromises)
+        .then(() => {
+          // ดึงข้อมูลใหม่หลังสร้างเสร็จ
+          db.query(query, [userId], (err2, results2) => {
+            if (err2) return res.status(500).json({ error: 'Failed to fetch meal times' });
+            
+            const mealTimes = results2.reduce((acc, curr) => {
+              const mealKey = {
+                1: 'breakfast',
+                2: 'lunch',
+                3: 'dinner',
+                4: 'snack'
+              }[curr.MealID];
+              
+              if (mealKey) {
+                acc[mealKey] = curr.Time.substring(0, 5); // HH:MM
+              }
+              return acc;
+            }, {});
+            
+            res.json(mealTimes);
+          });
+        })
+        .catch(err => {
+          console.error('❌ Error creating default meal times:', err);
+          res.status(500).json({ error: 'Failed to create default meal times' });
+        });
+
+      return;
+    }
+
+    // แปลงข้อมูลเป็น format ที่ frontend ต้องการ
+    const mealTimes = results.reduce((acc, curr) => {
+      const mealKey = {
+        1: 'breakfast',
+        2: 'lunch',
+        3: 'dinner',
+        4: 'snack'
+      }[curr.MealID];
+      
+      if (mealKey) {
+        acc[mealKey] = curr.Time.substring(0, 5); // แปลง HH:MM:SS เป็น HH:MM
+      }
+      return acc;
+    }, {});
+
+    console.log('✅ Meal times fetched:', mealTimes);
+    res.json(mealTimes);
+  });
+});
+
+// ✅ PATCH /api/meal-times/:userId - อัปเดตเวลาอาหาร
+app.patch('/api/meal-times/:userId', async (req, res) => {
+  const userId = req.params.userId;
+  const { breakfast, lunch, dinner, snack } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ error: 'User ID is required' });
+  }
+
+  const updates = [
+    { MealID: 1, Time: breakfast },
+    { MealID: 2, Time: lunch },
+    { MealID: 3, Time: dinner },
+    { MealID: 4, Time: snack }
+  ];
+
+  try {
+    const updatePromises = updates.map(({ MealID, Time }) => {
+      return new Promise((resolve, reject) => {
+        // แปลง HH:MM เป็น HH:MM:00 สำหรับ database
+        const fullTime = Time.length === 5 ? `${Time}:00` : Time;
+        
+        const query = `
+          UPDATE userdefaultmealtime 
+          SET Time = ? 
+          WHERE UserID = ? AND MealID = ?
+        `;
+        
+        db.query(query, [fullTime, userId, MealID], (err, result) => {
+          if (err) {
+            console.error(`❌ Failed to update MealID ${MealID}:`, err);
+            reject(err);
+          } else {
+            console.log(`✅ Updated MealID ${MealID} to ${fullTime}`);
+            resolve(result);
+          }
+        });
+      });
+    });
+
+    await Promise.all(updatePromises);
+    
+    res.status(200).json({ 
+      success: true, 
+      message: 'Meal times updated successfully' 
+    });
+  } catch (error) {
+    console.error('❌ Error updating meal times:', error);
+    res.status(500).json({ 
+      error: 'Failed to update meal times',
+      details: error.message 
+    });
+  }
 });
 
 // Update meal times
@@ -1073,8 +1653,20 @@ app.get('/api/history', (req, res) => {
   if (!from || !to) return res.status(400).json({ error: 'missing from/to date' });
 
   const sqlRows = `
-    SELECT s.ScheduleID, s.Date, s.Time, s.Status, s.ActualTime, s.SideEffects,
-           m.MedicationID, m.Name, m.Dosage, du.DosageType, mt.TypeName
+    SELECT 
+      s.ScheduleID, 
+      s.Date, 
+      s.Time, 
+      s.Status, 
+      s.ActualTime, 
+      s.SideEffects,
+      s.LateMinutes,
+      s.IsLate,
+      m.MedicationID, 
+      m.Name, 
+      m.Dosage, 
+      du.DosageType, 
+      mt.TypeName
     FROM medicationschedule s
     JOIN medication m ON s.MedicationID = m.MedicationID
     LEFT JOIN dosageunit du ON m.UnitID = du.UnitID
@@ -1118,54 +1710,78 @@ app.post('/api/medicationlog', async (req, res) => {
   console.log('📝 Received log request:', { medicationId, scheduleId, date, status });
   
   try {
-    // ✅ ตรวจสอบว่ามี scheduleId หรือไม่
     if (!scheduleId || !medicationId || !date) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
     // ดึงข้อมูลจำนวนรายการยาในวันนั้น
     const [countResult] = await db.promise().query(
-      `SELECT COUNT(*) as total 
-       FROM medicationschedule 
+      `SELECT COUNT(*) as total FROM medicationschedule 
        WHERE MedicationID = ? AND Date = ?`,
       [medicationId, date]
     );
-    
     const totalCount = countResult[0]?.total || 0;
     
-    // นับจำนวนที่กินแล้วและข้าม
+    // ✅ นับตามสถานะละเอียด
     const [statusResult] = await db.promise().query(
       `SELECT 
+         SUM(CASE WHEN Status = 'กินแล้ว' AND IsLate = 0 THEN 1 ELSE 0 END) as onTime,
+         SUM(CASE WHEN Status = 'กินแล้ว' AND IsLate = 1 THEN 1 ELSE 0 END) as late,
          SUM(CASE WHEN Status = 'กินแล้ว' THEN 1 ELSE 0 END) as taken,
-         SUM(CASE WHEN Status = 'ข้าม' THEN 1 ELSE 0 END) as skipped
+         SUM(CASE WHEN Status = 'ข้าม' THEN 1 ELSE 0 END) as skipped,
+         SUM(CASE WHEN Status = 'ไม่ระบุ' THEN 1 ELSE 0 END) as unknown,
+         AVG(CASE WHEN Status = 'กินแล้ว' AND LateMinutes > 0 THEN LateMinutes ELSE NULL END) as avgLateMinutes
        FROM medicationschedule 
        WHERE MedicationID = ? AND Date = ?`,
       [medicationId, date]
     );
     
+    const onTimeCount = statusResult[0]?.onTime || 0;
+    const lateCount = statusResult[0]?.late || 0;
     const takenCount = statusResult[0]?.taken || 0;
     const skippedCount = statusResult[0]?.skipped || 0;
+    const unknownCount = statusResult[0]?.unknown || 0;
+    const avgLateMinutes = parseFloat(statusResult[0]?.avgLateMinutes || 0).toFixed(2);
+    
     const perCount = totalCount > 0 ? ((takenCount / totalCount) * 100).toFixed(2) : 0;
     
-    console.log('📊 Stats:', { totalCount, takenCount, skippedCount, perCount });
+    console.log('📊 Stats:', { 
+      totalCount, onTimeCount, lateCount, takenCount, skippedCount, unknownCount, 
+      perCount, avgLateMinutes 
+    });
     
-    // ✅ ใช้ (MedicationID, date) เป็น unique key แทน LogID auto-increment
+    // ✅ บันทึก log พร้อมข้อมูลละเอียด
     await db.promise().query(
       `INSERT INTO medicationlog 
-       (MedicationID, ScheduleID, \`Count\`, TakenCount, SkippedCount, PerCount, date, Status, SideEffects)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (MedicationID, ScheduleID, \`Count\`, OnTimeCount, LateCount, TakenCount, SkippedCount, UnknownCount, 
+        PerCount, AvgLateMinutes, date, Status, SideEffects)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          ScheduleID = VALUES(ScheduleID),
          \`Count\` = VALUES(\`Count\`),
+         OnTimeCount = VALUES(OnTimeCount),
+         LateCount = VALUES(LateCount),
          TakenCount = VALUES(TakenCount),
          SkippedCount = VALUES(SkippedCount),
+         UnknownCount = VALUES(UnknownCount),
          PerCount = VALUES(PerCount),
+         AvgLateMinutes = VALUES(AvgLateMinutes),
          Status = VALUES(Status),
          SideEffects = VALUES(SideEffects)`,
-      [medicationId, scheduleId, totalCount, takenCount, skippedCount, perCount, date, status, sideEffects || null]
+      [medicationId, scheduleId, totalCount, onTimeCount, lateCount, takenCount, skippedCount, unknownCount,
+       perCount, avgLateMinutes, date, status, sideEffects || null]
     );
     
-    res.json({ success: true, perCount, takenCount, totalCount });
+    res.json({ 
+      success: true, 
+      perCount, 
+      takenCount, 
+      onTimeCount, 
+      lateCount, 
+      unknownCount,
+      totalCount,
+      avgLateMinutes
+    });
   } catch (error) {
     console.error('❌ Error updating medication log:', error);
     res.status(500).json({ error: 'Failed to update log', details: error.message });
@@ -1176,30 +1792,146 @@ app.post('/api/medicationlog', async (req, res) => {
 app.get('/api/medicationlog/stats', async (req, res) => {
   const { userId, from, to } = req.query;
   
+  if (!userId || !from || !to) {
+    return res.status(400).json({ 
+      error: 'Missing required parameters',
+      required: ['userId', 'from', 'to']
+    });
+  }
+  
   try {
     const [rows] = await db.promise().query(
       `SELECT 
          m.MedicationID,
          m.name as MedicationName,
-         SUM(ml.\`Count\`) as TotalScheduled,
-         SUM(ml.TakenCount) as TotalTaken,
-         SUM(ml.SkippedCount) as TotalSkipped,
-         ROUND(AVG(ml.PerCount), 2) as AvgPerCount
-       FROM medicationlog ml
-       JOIN medication m ON ml.MedicationID = m.MedicationID
-       WHERE m.UserID = ? AND ml.date BETWEEN ? AND ?
+         COUNT(DISTINCT s.ScheduleID) as TotalScheduled,
+         SUM(CASE 
+           WHEN s.Status = 'กินแล้ว' AND (s.IsLate = 0 OR s.LateMinutes = 0 OR s.LateMinutes IS NULL) 
+           THEN 1 ELSE 0 
+         END) as TotalOnTime,
+         SUM(CASE 
+           WHEN s.Status = 'กินแล้ว' AND s.IsLate = 1 AND s.LateMinutes > 0 
+           THEN 1 ELSE 0 
+         END) as TotalLate,
+         SUM(CASE WHEN s.Status = 'กินแล้ว' THEN 1 ELSE 0 END) as TotalTaken,
+         SUM(CASE WHEN s.Status = 'ข้าม' THEN 1 ELSE 0 END) as TotalSkipped,
+         SUM(CASE 
+           WHEN s.Status = 'ไม่ระบุ' OR s.Status IS NULL OR s.Status = 'รอกิน' 
+           THEN 1 ELSE 0 
+         END) as TotalUnknown,
+         ROUND(
+           (SUM(CASE WHEN s.Status = 'กินแล้ว' THEN 1 ELSE 0 END) * 100.0 / 
+           NULLIF(COUNT(DISTINCT s.ScheduleID), 0)), 2
+         ) as AvgPerCount,
+         ROUND(AVG(CASE 
+           WHEN s.Status = 'กินแล้ว' AND s.LateMinutes > 0 
+           THEN s.LateMinutes 
+           ELSE NULL 
+         END), 2) as AvgLateMinutes
+       FROM medication m
+       LEFT JOIN medicationschedule s 
+         ON m.MedicationID = s.MedicationID 
+         AND s.Date BETWEEN ? AND ?
+       WHERE m.UserID = ?
+         AND m.IsActive = 1
        GROUP BY m.MedicationID, m.name
-       ORDER BY AvgPerCount DESC`,
-      [userId, from, to]
+       HAVING TotalScheduled > 0
+       ORDER BY AvgPerCount DESC, m.name ASC`,
+      [from, to, userId]
     );
     
-    res.json(rows);
+    // แปลง null เป็น 0 สำหรับทุก field
+    const processedRows = rows.map(row => ({
+      ...row,
+      TotalScheduled: parseInt(row.TotalScheduled) || 0,
+      TotalOnTime: parseInt(row.TotalOnTime) || 0,
+      TotalLate: parseInt(row.TotalLate) || 0,
+      TotalTaken: parseInt(row.TotalTaken) || 0,
+      TotalSkipped: parseInt(row.TotalSkipped) || 0,
+      TotalUnknown: parseInt(row.TotalUnknown) || 0,
+      AvgPerCount: parseFloat(row.AvgPerCount) || 0,
+      AvgLateMinutes: parseFloat(row.AvgLateMinutes) || 0
+    }));
+    
+    console.log(`✅ Fetched stats for ${processedRows.length} medications`);
+    
+    res.json(processedRows);
   } catch (error) {
-    console.error('Error fetching medication stats:', error);
-    res.status(500).json({ error: 'Failed to fetch stats' });
+    console.error('❌ Error fetching medication stats:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch stats',
+      details: error.message 
+    });
   }
 });
 
+
+// API สำหรับดึงข้อมูล summary แบบละเอียด
+app.get('/api/history/summary', async (req, res) => {
+  const { userId, from, to, lateThresholdHours = 1 } = req.query;
+  
+  const lateThresholdMinutes = parseFloat(lateThresholdHours) * 60;
+  
+  try {
+    const [result] = await db.promise().query(
+      `SELECT
+         COUNT(*) AS total,
+         SUM(CASE 
+           WHEN s.Status = 'กินแล้ว' AND (s.IsLate = 0 OR s.LateMinutes = 0 OR s.LateMinutes IS NULL) 
+           THEN 1 ELSE 0 
+         END) AS onTime,
+         SUM(CASE 
+           WHEN s.Status = 'กินแล้ว' AND s.IsLate = 1 AND s.LateMinutes >= ? 
+           THEN 1 ELSE 0 
+         END) AS late,
+         SUM(CASE 
+           WHEN s.Status = 'กินแล้ว' AND s.IsLate = 1 AND s.LateMinutes > 0 AND s.LateMinutes < ? 
+           THEN 1 ELSE 0 
+         END) AS slightlyLate,
+         SUM(CASE WHEN s.Status = 'กินแล้ว' THEN 1 ELSE 0 END) AS taken,
+         SUM(CASE WHEN s.Status = 'ข้าม' THEN 1 ELSE 0 END) AS skipped,
+         SUM(CASE WHEN s.Status = 'ไม่ระบุ' OR s.Status IS NULL THEN 1 ELSE 0 END) AS unknown,
+         ROUND(AVG(CASE 
+           WHEN s.Status = 'กินแล้ว' AND s.LateMinutes > 0 
+           THEN s.LateMinutes 
+           ELSE NULL 
+         END), 2) AS avgLateMinutes
+       FROM medicationschedule s
+       JOIN medication m ON s.MedicationID = m.MedicationID
+       WHERE m.UserID = ? AND s.Date BETWEEN ? AND ?`,
+      [lateThresholdMinutes, lateThresholdMinutes, userId, from, to]
+    );
+    
+    const summary = result[0] || {
+      total: 0,
+      onTime: 0,
+      late: 0,
+      slightlyLate: 0,
+      taken: 0,
+      skipped: 0,
+      unknown: 0,
+      avgLateMinutes: 0
+    };
+    
+    // แปลงค่า null เป็น 0
+    Object.keys(summary).forEach(key => {
+      if (summary[key] === null) summary[key] = 0;
+    });
+    
+    summary.avgLateMinutes = parseFloat(summary.avgLateMinutes || 0).toFixed(2);
+    summary.avgLateHours = (summary.avgLateMinutes / 60).toFixed(2);
+    
+    console.log('✅ Summary result:', summary);
+    
+    res.json(summary);
+  } catch (error) {
+    console.error('❌ Error fetching summary:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch summary',
+      details: error.message 
+    });
+  }
+});
 
 // ============================================
 // 🔧 API แก้ไข/ลบ กลุ่มโรค (Groups)
@@ -1396,8 +2128,48 @@ app.delete('/api/units/:id', (req, res) => {
   });
 });
 
+// ✅ ฟังก์ชันคำนวณเวลาที่กินช้า
+const calculateLateMinutes = (scheduledTime, actualTime) => {
+  if (!scheduledTime || !actualTime) return null;
+  
+  const scheduled = new Date(`1970-01-01T${scheduledTime}`);
+  const actual = new Date(`1970-01-01T${actualTime}`);
+  
+  if (isNaN(scheduled) || isNaN(actual)) return null;
+  
+  const diffMs = actual - scheduled;
+  const diffMinutes = Math.floor(diffMs / 60000);
+  
+  return diffMinutes > 0 ? diffMinutes : 0; // คืนค่า 0 ถ้ากินก่อนเวลา
+};
 
-// 🚀 รัน server
+//  ฟังก์ชัน Auto-update Status เป็น "ไม่ระบุ" สำหรับยาที่เลยเวลา
+const autoUpdateExpiredSchedules = () => {
+  const now = new Date();
+  const currentDate = now.toISOString().split('T')[0];
+  
+  const sql = `
+    UPDATE medicationschedule 
+    SET Status = 'ไม่ระบุ' 
+    WHERE Status = 'รอกิน' 
+      AND Date < ? 
+  `;
+
+  db.query(sql, [currentDate], (err, result) => {
+    if (err) {
+      console.error('❌ Auto-update expired schedules error:', err);
+    } else if (result.affectedRows > 0) {
+      console.log(`✅ Auto-updated ${result.affectedRows} expired schedules to "ไม่ระบุ"`);
+    }
+  });
+};
+
+//  เรียก auto-update ทุก 5 นาที
+setInterval(autoUpdateExpiredSchedules, 5 * 60 * 1000);
+autoUpdateExpiredSchedules(); // เรียกทันทีตอน start server
+
+
+//  รัน server
 app.listen(3000, () => {
   console.log('🌐 Server is running on port 3000');
 });

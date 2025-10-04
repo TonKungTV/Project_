@@ -981,9 +981,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8f9fa',
-    padding: 15
+    padding: 15,
   },
-
+  scrollContent: {
+    padding: 15,
+    paddingBottom: 40, // เพิ่ม padding ด้านล่างเพื่อให้เลื่อนดูได้สบาย
+  },
   headerBox: {
     backgroundColor: '#4dabf7',
     borderRadius: 16,

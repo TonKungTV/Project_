@@ -159,21 +159,30 @@ const ManageUnitsScreen = ({ navigation }) => {
               <View style={styles.cardContent}>
                 <Ionicons name="scale" size={24} color="#4da6ff" />
                 <Text style={styles.cardTitle}>{item.DosageType || item.name}</Text>
+                {/* แสดง badge สำหรับ default items */}
+                {item.UserID === null && (
+                  <View style={styles.defaultBadge}>
+                    <Text style={styles.defaultBadgeText}>ค่าเริ่มต้น</Text>
+                  </View>
+                )}
               </View>
-              <View style={styles.cardActions}>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.editButton]}
-                  onPress={() => openEditModal(item)}
-                >
-                  <Ionicons name="create-outline" size={20} color="#fff" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.deleteButton]}
-                  onPress={() => handleDelete(item)}
-                >
-                  <Ionicons name="trash-outline" size={20} color="#fff" />
-                </TouchableOpacity>
-              </View>
+              {/* แสดงปุ่มแก้ไข/ลบ เฉพาะ custom items (UserID ไม่เป็น null) */}
+              {item.UserID !== null && (
+                <View style={styles.cardActions}>
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.editButton]}
+                    onPress={() => openEditModal(item)}
+                  >
+                    <Ionicons name="create-outline" size={20} color="#fff" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.deleteButton]}
+                    onPress={() => handleDelete(item)}
+                  >
+                    <Ionicons name="trash-outline" size={20} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           ))
         )}
@@ -412,6 +421,30 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  cardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2c3e50',
+    marginLeft: 12,
+    flex: 1,
+  },
+  defaultBadge: {
+    backgroundColor: '#e3f2fd',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginLeft: 8,
+  },
+  defaultBadgeText: {
+    fontSize: 11,
+    color: '#1976d2',
+    fontWeight: '600',
   },
 });
 

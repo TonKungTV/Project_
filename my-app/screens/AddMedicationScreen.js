@@ -25,7 +25,7 @@ const frequencyOptions = [
 ];
 
 const AddMedicationScreen = ({ navigation, route }) => {
-  // ...existing code...
+  const [userId, setUserId] = useState(null);
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
   const [groupID, setGroupID] = useState('');
@@ -60,7 +60,36 @@ const AddMedicationScreen = ({ navigation, route }) => {
   const [units, setUnits] = useState([]);
   const [types, setTypes] = useState([]);
 
-  // ...existing code...
+  useEffect(() => {
+    const loadUserData = async () => {
+      try {
+        // ดึง userId จาก AsyncStorage
+        const userIdStr = await AsyncStorage.getItem('userId');
+        const uid = userIdStr ? parseInt(userIdStr, 10) : null;
+        
+        if (!uid) {
+          Alert.alert('Error', 'กรุณาเข้าสู่ระบบใหม่');
+          navigation.navigate('Login');
+          return;
+        }
+
+        setUserId(uid);
+        console.log('👤 User ID:', uid);
+
+        // ✅ ดึง metadata และ meal times พร้อมกัน
+        await Promise.all([
+          fetchMetadata(),
+          fetchUserMealTimes(uid)
+        ]);
+      } catch (error) {
+        console.error('❌ Error loading user data:', error);
+        Alert.alert('Error', 'ไม่สามารถโหลดข้อมูลได้');
+      }
+    };
+
+    loadUserData();
+  }, []);
+
   const extractId = (obj) => {
     if (!obj) return null;
     return obj.GroupID ?? obj.TypeID ?? obj.DosageUnitID ?? obj.UnitID ?? obj.id ?? obj.ID ?? null;
@@ -97,19 +126,32 @@ const AddMedicationScreen = ({ navigation, route }) => {
     }
   };
 
-  useEffect(() => {
-    fetchMetadata();
+  // ✅ ฟังก์ชันดึงเวลาอาหารของ user
+  const fetchUserMealTimes = async (uid) => {
+    try {
+      const response = await fetch(`${BASE_URL}/api/userdefaultmealtime/${uid}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
 
-    fetch(`${BASE_URL}/api/userdefaultmealtime`)
-      .then(res => res.json())
-      .then(data => setDefaultTimes(data))
-      .catch(err => console.error('Error fetching user default meal times:', err));
-  }, []);
+      const data = await response.json();
+      console.log('📥 User meal times:', data);
+      
+      setDefaultTimes(data);
+    } catch (error) {
+      console.error('❌ Error fetching user meal times:', error);
+      Alert.alert('Error', 'ไม่สามารถดึงเวลาอาหารได้\n' + error.message);
+    }
+  };
 
   useFocusEffect(
     React.useCallback(() => {
       fetchMetadata();
-    }, [])
+      if (userId) {
+        fetchUserMealTimes(userId);
+      }
+    }, [userId])
   );
 
   useEffect(() => {
@@ -169,10 +211,16 @@ const AddMedicationScreen = ({ navigation, route }) => {
   };
 
   const handleSave = async () => {
+    if (!userId) {
+      Alert.alert('กรุณาเข้าสู่ระบบก่อนเพิ่มยา');
+      navigation.navigate('Login');
+      return;
+    }
     if (!name || !typeID || selectedTimeIds.length === 0 || !groupID) {
       Alert.alert('กรุณากรอกข้อมูลให้ครบ');
       return;
     }
+    
     if ((usageMealID === 2 || usageMealID === 3) && !prePostTime) {
       Alert.alert('กรุณาเลือกเวลาก่อน/หลังอาหาร');
       return;
@@ -249,7 +297,7 @@ const AddMedicationScreen = ({ navigation, route }) => {
     };
 
     const medicationData = {
-      UserID: userId,
+      UserID: userId, // ✅ ใช้ userId จาก state
       Name: name,
       Note: note,
       GroupID: parseInt(groupID, 10),
@@ -282,7 +330,7 @@ const AddMedicationScreen = ({ navigation, route }) => {
 
       if (response.ok) {
         const result = await response.json();
-        const newMedicationId = result.medicationId; // ต้องให้ backend ส่ง medicationId กลับมา
+        const newMedicationId = result.medicationId;
 
         // ✅ บันทึก log เริ่มต้น
         if (newMedicationId) {
@@ -676,7 +724,12 @@ const AddMedicationScreen = ({ navigation, route }) => {
         )}
 
         <View style={styles.inputContainer}>
-          <Text style={styles.label}>มื้อ/เวลาที่กินยา <Text style={styles.required}>*</Text></Text>
+        <Text style={styles.label}>มื้อ/เวลาที่กินยา <Text style={styles.required}>*</Text></Text>
+        {defaultTimes.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateText}>กำลังโหลดเวลาอาหาร...</Text>
+          </View>
+        ) : (
           <View style={styles.mealTimesContainer}>
             {defaultTimes.map(time => (
               <TouchableOpacity
@@ -692,7 +745,7 @@ const AddMedicationScreen = ({ navigation, route }) => {
                     styles.mealTimeLabel,
                     selectedTimeIds.includes(time.DefaultTime_ID) && styles.mealTimeLabelActive
                   ]}>
-                    {convertMeal(time.MealID)}
+                    {time.MealName || convertMeal(time.MealID)}
                   </Text>
                   <Text style={[
                     styles.mealTimeTime,
@@ -707,7 +760,8 @@ const AddMedicationScreen = ({ navigation, route }) => {
               </TouchableOpacity>
             ))}
           </View>
-        </View>
+        )}
+      </View>
       </View>
 
       {/* Section: ระยะเวลา */}
@@ -1161,6 +1215,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#4da6ff',
     fontWeight: '600',
+  },
+  emptyState: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: '#7f8c8d',
   },
 });
 

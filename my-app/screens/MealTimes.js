@@ -8,41 +8,68 @@ import {
     SafeAreaView,
     StatusBar,
     Alert,
+    ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BASE_URL } from './config';
 
 const MealTimes = ({ navigation }) => {
     const [mealTimes, setMealTimes] = useState({
+        breakfast: '08:00',
+        lunch: '12:00',
+        dinner: '18:00',
+        snack: '21:00',
     });
 
     const [editingMeal, setEditingMeal] = useState(null);
     const [tempTime, setTempTime] = useState('');
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [userId, setUserId] = useState(null);
 
-    // ดึงข้อมูลเวลาอาหารจาก Backend (โดยใช้ fetch)
-    
+    // ✅ ดึง userId และข้อมูลเวลาอาหาร
     useEffect(() => {
-  fetch(`${BASE_URL}/api/meal-times`) // เปลี่ยน URL ให้ถูกต้อง
-    .then(response => {
-      if (!response.ok) {
-        throw new Error('Failed to fetch meal times');  // เพิ่มการตรวจสอบ error
-      }
-      return response.json();
-    })
-    .then(data => {
-      console.log('Meal times fetched successfully:', data);  // ตรวจสอบข้อมูลที่ได้รับ
-      setMealTimes({
-        breakfast: data.breakfast,
-        lunch: data.lunch,
-        dinner: data.dinner,
-        snack: data.snack,
-      });
-    })
-    .catch(error => {
-      console.error('Error fetching meal times:', error); // เพิ่มการแสดงข้อผิดพลาด
-      Alert.alert('Error', 'ไม่สามารถดึงข้อมูลเวลาอาหาร');
-    });
-}, []);
+        const fetchMealTimes = async () => {
+            try {
+                // ดึง userId จาก AsyncStorage
+                const storedUserId = await AsyncStorage.getItem('userId');
+                
+                if (!storedUserId) {
+                    Alert.alert('Error', 'กรุณาเข้าสู่ระบบใหม่');
+                    navigation.navigate('Login');
+                    return;
+                }
 
+                setUserId(storedUserId);
+                console.log('👤 User ID:', storedUserId);
+
+                // ดึงข้อมูลเวลาอาหารจาก API
+                const response = await fetch(`${BASE_URL}/api/meal-times/${storedUserId}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                console.log('📥 Meal times fetched:', data);
+
+                setMealTimes({
+                    breakfast: data.breakfast || '08:00',
+                    lunch: data.lunch || '12:00',
+                    dinner: data.dinner || '18:00',
+                    snack: data.snack || '21:00',
+                });
+
+            } catch (error) {
+                console.error('❌ Error fetching meal times:', error);
+                Alert.alert('Error', 'ไม่สามารถดึงข้อมูลเวลาอาหาร\n' + error.message);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchMealTimes();
+    }, []);
 
     const handleTimePress = (mealType) => {
         setEditingMeal(mealType);
@@ -62,29 +89,42 @@ const MealTimes = ({ navigation }) => {
         }
     };
 
-    const handleSave = () => {
-        fetch(`${BASE_URL}/api/meal-times`, {
-            method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(mealTimes),
-        })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Failed to save meal times');
-                }
-                return response.json();
-            })
-            .then(data => {
-                Alert.alert('Success', 'บันทึกเวลาอาหารสำเร็จ!');
-                navigation.goBack();
-            })
-            .catch(error => {
-                console.error('Error saving meal times:', error);
-                Alert.alert('Error', 'ไม่สามารถบันทึกเวลาอาหาร');
+    // ✅ บันทึกเวลาอาหาร
+    const handleSave = async () => {
+        if (!userId) {
+            Alert.alert('Error', 'ไม่พบข้อมูลผู้ใช้');
+            return;
+        }
+
+        setSaving(true);
+
+        try {
+            const response = await fetch(`${BASE_URL}/api/meal-times/${userId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(mealTimes),
             });
 
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to save meal times');
+            }
+
+            const data = await response.json();
+            console.log('✅ Save response:', data);
+
+            Alert.alert('สำเร็จ', 'บันทึกเวลาอาหารสำเร็จ!', [
+                { text: 'ตรวจสอบ', onPress: () => navigation.goBack() }
+            ]);
+
+        } catch (error) {
+            console.error('❌ Error saving meal times:', error);
+            Alert.alert('Error', 'ไม่สามารถบันทึกเวลาอาหาร\n' + error.message);
+        } finally {
+            setSaving(false);
+        }
     };
 
     const handleCancel = () => {
@@ -119,6 +159,17 @@ const MealTimes = ({ navigation }) => {
         </View>
     );
 
+    if (loading) {
+        return (
+            <SafeAreaView style={styles.container}>
+                <View style={[styles.mainContent, styles.centerContent]}>
+                    <ActivityIndicator size="large" color="#3B82F6" />
+                    <Text style={styles.loadingText}>กำลังโหลด...</Text>
+                </View>
+            </SafeAreaView>
+        );
+    }
+
     return (
         <SafeAreaView style={styles.container}>
             <StatusBar backgroundColor="#3B82F6" barStyle="light-content" />
@@ -135,10 +186,22 @@ const MealTimes = ({ navigation }) => {
                     {renderTimeInput('ก่อนนอน', 'snack', mealTimes.snack)}
                 </View>
                 <View style={styles.buttonContainer}>
-                    <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-                        <Text style={styles.saveButtonText}>บันทึก</Text>
+                    <TouchableOpacity 
+                        style={[styles.saveButton, saving && styles.disabledButton]} 
+                        onPress={handleSave}
+                        disabled={saving}
+                    >
+                        {saving ? (
+                            <ActivityIndicator color="#FFFFFF" />
+                        ) : (
+                            <Text style={styles.saveButtonText}>บันทึก</Text>
+                        )}
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.cancelButton} onPress={handleCancel}>
+                    <TouchableOpacity 
+                        style={styles.cancelButton} 
+                        onPress={handleCancel}
+                        disabled={saving}
+                    >
                         <Text style={styles.cancelButtonText}>ยกเลิก</Text>
                     </TouchableOpacity>
                 </View>
@@ -159,20 +222,67 @@ const styles = StyleSheet.create({
         paddingTop: 32,
         paddingBottom: 32,
     },
+    centerContent: {
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    loadingText: {
+        marginTop: 16,
+        fontSize: 16,
+        color: '#6B7280',
+    },
     iconContainer: { alignItems: 'center', marginBottom: 32 },
-    bowlIcon: { width: 64, height: 64, backgroundColor: '#6B7280', borderRadius: 32, justifyContent: 'center', alignItems: 'center' },
+    bowlIcon: { 
+        width: 64, 
+        height: 64, 
+        backgroundColor: '#6B7280', 
+        borderRadius: 32, 
+        justifyContent: 'center', 
+        alignItems: 'center' 
+    },
     bowlEmoji: { fontSize: 28 },
     inputsContainer: { flex: 1 },
     inputContainer: { marginBottom: 24 },
     label: { fontSize: 16, fontWeight: '500', color: '#374151', marginBottom: 8 },
-    timeInput: { backgroundColor: '#F3F4F6', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8, justifyContent: 'center', minHeight: 48 },
+    timeInput: { 
+        backgroundColor: '#F3F4F6', 
+        paddingHorizontal: 16, 
+        paddingVertical: 12, 
+        borderRadius: 8, 
+        justifyContent: 'center', 
+        minHeight: 48 
+    },
     timeText: { fontSize: 16, color: '#6B7280' },
     editContainer: { backgroundColor: '#F3F4F6', borderRadius: 8, overflow: 'hidden' },
-    textInput: { paddingHorizontal: 16, paddingVertical: 12, fontSize: 16, color: '#374151', backgroundColor: '#FFFFFF', borderWidth: 2, borderColor: '#3B82F6', borderRadius: 8 },
+    textInput: { 
+        paddingHorizontal: 16, 
+        paddingVertical: 12, 
+        fontSize: 16, 
+        color: '#374151', 
+        backgroundColor: '#FFFFFF', 
+        borderWidth: 2, 
+        borderColor: '#3B82F6', 
+        borderRadius: 8 
+    },
     buttonContainer: { flexDirection: 'row', gap: 16, marginTop: 24 },
-    saveButton: { flex: 1, backgroundColor: '#3B82F6', paddingVertical: 12, borderRadius: 24, alignItems: 'center' },
+    saveButton: { 
+        flex: 1, 
+        backgroundColor: '#3B82F6', 
+        paddingVertical: 12, 
+        borderRadius: 24, 
+        alignItems: 'center' 
+    },
+    disabledButton: {
+        opacity: 0.6,
+    },
     saveButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '500' },
-    cancelButton: { flex: 1, backgroundColor: '#6B7280', paddingVertical: 12, borderRadius: 24, alignItems: 'center' },
+    cancelButton: { 
+        flex: 1, 
+        backgroundColor: '#6B7280', 
+        paddingVertical: 12, 
+        borderRadius: 24, 
+        alignItems: 'center' 
+    },
     cancelButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '500' },
 });
 
