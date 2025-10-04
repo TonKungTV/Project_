@@ -33,7 +33,7 @@ const StatusBadge = ({ status, onPress }) => {
       case 'รอกิน':
         return { color: '#ffc107', icon: 'time-outline', text: 'รอกิน' };
       default:
-        return { color: '#6c757d', icon: 'help-circle-outline', text: 'ไม่ทราบสถานะ' };
+        return { color: '#6c757d', icon: 'help-circle-outline', text: 'ไม่ระบุ' };
     }
   };
 
@@ -130,7 +130,8 @@ const groupMedicationsByTime = (items) => {
   return groups;
 };
 
-const HomeScreen = ({ navigation,onLogout }) => {
+const HomeScreen = ({ navigation, onLogout }) => {
+  const [modalMode, setModalMode] = useState('detail');
   const { setItems: setNotificationItems } = useNotification();
   const [items, setItems] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
@@ -151,7 +152,7 @@ const HomeScreen = ({ navigation,onLogout }) => {
   const [alertedIds, setAlertedIds] = useState(new Set());
   const alertLeadMinutes = 0; // 0 = เตือนเวลาตรง, ปรับเป็น 5 ถ้าต้องการเตือนล่วงหน้า 5 นาที
   const TEST_ALERT_INTERVAL_MS = 15000;
-  const TEST_MODE = true; // true = เตือนทุกนาที, false = ปิด
+  const TEST_MODE = false; // true = เตือนทุกนาที, false = ปิด
   const [notifications, setNotifications] = useState([]); // {id, medId, title, message, medObj, anim}
   const soundRef = React.useRef(null);
   const [soundReady, setSoundReady] = useState(false);
@@ -170,6 +171,43 @@ const HomeScreen = ({ navigation,onLogout }) => {
     }]);
     hapticAndSound(); // จะเล่นทันทีหรือรอจนโหลดเสียงเสร็จแล้วค่อยเล่น
   };
+
+  const saveEdits = async () => {
+  if (!selectedItem?.scheduleId) {
+    setModalMode('detail');
+    return;
+  }
+  
+  try {
+    // ✅ ถ้าสถานะเป็น "ข้าม" ไม่ต้องส่ง actualTime
+    const actualTimeNormalized = (selectedItem.status === 'ข้าม') ? null : normalizeTime(actualTakeTime);
+    
+    const updateData = {
+      status: selectedItem.status === 'ข้าม' ? 'กินแล้ว' : selectedItem.status,
+      sideEffects: sideEffects || null,
+      actualTime: actualTimeNormalized,
+      recordedAt: new Date().toISOString(),
+    };
+
+    const res = await fetch(`${BASE_URL}/api/schedule/${selectedItem.scheduleId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updateData),
+    });
+
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      throw new Error(`Update failed: ${res.status} ${t}`);
+    }
+
+    await load();
+    closeModal();
+    Alert.alert('บันทึกสำเร็จ', 'อัปเดตรายละเอียดการกินยาแล้ว');
+  } catch (e) {
+    console.error(e);
+    Alert.alert('เกิดข้อผิดพลาด', 'ไม่สามารถบันทึกการเปลี่ยนแปลงได้');
+  }
+};
 
   const dismissNotification = (nid) => {
     const target = notifications.find(n => n.id === nid);
@@ -283,35 +321,35 @@ const HomeScreen = ({ navigation,onLogout }) => {
   };
 
   const load = async (dateOverride) => {
-  const userId = await AsyncStorage.getItem('userId');
-  if (!userId) return;
+    const userId = await AsyncStorage.getItem('userId');
+    if (!userId) return;
 
-  try {
-    const dateStr = dateOverride ? dateOverride : formatLocalDate(selectedDate);
-    const res = await fetch(`${BASE_URL}/api/reminders/today?userId=${userId}&date=${dateStr}`);
-    const data = await res.json();
+    try {
+      const dateStr = dateOverride ? dateOverride : formatLocalDate(selectedDate);
+      const res = await fetch(`${BASE_URL}/api/reminders/today?userId=${userId}&date=${dateStr}`);
+      const data = await res.json();
 
-    const scheduledOnly = Array.isArray(data) ? data.filter(r => r.ScheduleID) : [];
+      const scheduledOnly = Array.isArray(data) ? data.filter(r => r.ScheduleID) : [];
 
-    const mapped = scheduledOnly.map((r, i) => ({
-      id: r.ScheduleID || `${r.MedicationID}-${i}`,
-      scheduleId: r.ScheduleID || null,
-      medicationId: r.MedicationID,
-      time: `${r.MealName} ${formatHM(r.Time)} น.`,
-      rawTime: r.Time,
-      name: r.name,
-      dose: r.Dosage != null && r.DosageType ? `${r.Dosage} ${r.DosageType}` : '-',
-      medType: r.TypeName || '-',
-      importance: r.PriorityLabel || 'ปกติ',
-      status: r.Status || 'รอกิน',
-      actualTime: r.ActualTime || null,
-    }));
-    setItems(mapped);
-    setNotificationItems(mapped); // ส่งข้อมูลให้ Context
-  } catch (error) {
-    console.error('Error loading medications:', error);
-  }
-};
+      const mapped = scheduledOnly.map((r, i) => ({
+        id: r.ScheduleID || `${r.MedicationID}-${i}`,
+        scheduleId: r.ScheduleID || null,
+        medicationId: r.MedicationID,
+        time: `${r.MealName} ${formatHM(r.Time)} น.`,
+        rawTime: r.Time,
+        name: r.name,
+        dose: r.Dosage != null && r.DosageType ? `${r.Dosage} ${r.DosageType}` : '-',
+        medType: r.TypeName || '-',
+        importance: r.PriorityLabel || 'ปกติ',
+        status: r.Status || 'รอกิน',
+        actualTime: r.ActualTime || null,
+      }));
+      setItems(mapped);
+      setNotificationItems(mapped); // ส่งข้อมูลให้ Context
+    } catch (error) {
+      console.error('Error loading medications:', error);
+    }
+  };
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -446,23 +484,25 @@ const HomeScreen = ({ navigation,onLogout }) => {
   };
 
   // ✅ ฟังก์ชันที่ใช้เปลี่ยนสถานะ
-  const toggleStatus = async (item, customSideEffects = '', customTime = '') => {
-  let nextStatus;
-  if (customTime) {
-    nextStatus = 'กินแล้ว';
-  } else {
-    if (item.status === 'รอกิน') nextStatus = 'ข้าม';
-    else if (item.status === 'กินแล้ว') nextStatus = 'ข้าม';
-    else nextStatus = 'รอกิน';
-  }
+const toggleStatus = async (item, customSideEffects = '', customTime = '', newStatus = null) => {
+  const previousItems = [...items];
+  const nextStatus = newStatus || (item.status === 'รอกิน' ? 'กินแล้ว' : item.status === 'กินแล้ว' ? 'ข้าม' : 'รอกิน');
 
-  const previousItems = items;
+  // ปิด modal ก่อนเพื่อให้ UI ตอบสนองไวขึ้น
+  setModalVisible(false);
+
+  // อัพเดท state ชั่วคราว
   setItems(prev => prev.map(x => x.id === item.id ? { ...x, status: nextStatus } : x));
 
-  if (!item.scheduleId) return;
+  if (!item.scheduleId) {
+    setSelectedItem(null);
+    return;
+  }
 
   try {
-    const actualTimeNormalized = customTime ? normalizeTime(customTime) : null;
+    // ✅ ถ้าสถานะเป็น "ข้าม" ไม่ต้องส่ง actualTime
+    const actualTimeNormalized = (nextStatus === 'ข้าม') ? null : (customTime ? normalizeTime(customTime) : null);
+    
     const updateData = {
       status: nextStatus,
       sideEffects: customSideEffects || null,
@@ -476,42 +516,33 @@ const HomeScreen = ({ navigation,onLogout }) => {
       body: JSON.stringify(updateData),
     });
 
-    if (!res.ok) throw new Error(`Failed: ${res.status}`);
-
-    // ✅ บันทึก log หลังอัปเดตสถานะสำเร็จ
-    console.log('📝 บันทึก medication log...');
-    const logPayload = {
-      medicationId: item.medicationId, // ✅ ใช้จาก load()
-      scheduleId: item.scheduleId,
-      date: formatLocalDate(selectedDate),
-      status: nextStatus,
-      sideEffects: customSideEffects || null
-    };
-    console.log('📦 Payload:', logPayload);
-
-    try {
-      const logRes = await fetch(`${BASE_URL}/api/medicationlog`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(logPayload),
-      });
-
-      if (logRes.ok) {
-        const logData = await logRes.json();
-        console.log('✅ บันทึก log สำเร็จ:', logData);
-      } else {
-        const errorText = await logRes.text();
-        console.warn('⚠️ บันทึก log ไม่สำเร็จ:', logRes.status, errorText);
-      }
-    } catch (logError) {
-      console.error('❌ Error logging medication:', logError);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Failed to update schedule: ${res.status} ${text}`);
     }
 
+    // รีโหลดข้อมูลใหม่หลังจากบันทึกสำเร็จ
     await load();
+
+    // ล้างข้อมูล modal
+    setSelectedItem(null);
+    setSideEffects('');
+    setShowTimePicker(false);
+
+    // แสดง Alert
+    const statusMessage = nextStatus === 'กินแล้ว' ? 'ทานยาแล้ว' : 
+                         nextStatus === 'ข้าม' ? 'ข้ามยา' : 
+                         'อัปเดตสถานะ';
+    
+    Alert.alert('บันทึกสำเร็จ', `สถานะ: ${statusMessage}`);
   } catch (e) {
+    // คืนค่า state เดิมถ้าเกิดข้อผิดพลาด
     setItems(previousItems);
     console.error('Error updating status:', e);
     Alert.alert('เกิดข้อผิดพลาด', 'ไม่สามารถบันทึกข้อมูลได้');
+    
+    // เปิด modal กลับมาถ้าเกิดข้อผิดพลาด
+    setModalVisible(true);
   }
 };
 
@@ -521,14 +552,21 @@ const HomeScreen = ({ navigation,onLogout }) => {
     setSideEffects('');
     setMedTime(new Date());
     setActualTakeTime(item.actualTime ? item.actualTime.slice(0, 5) : new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }));
+    // เลือกโหมดตามสถานะ
+    if (item.status === 'รอกิน') {
+      setModalMode('record');    // โหมดบันทึกครั้งแรก: ทานยาแล้ว/ข้าม/ยกเลิก
+    } else {
+      setModalMode('detail');    // โหมดดูรายละเอียด: ปิด/แก้ไข
+    }
   };
 
   const closeModal = () => {
-    setModalVisible(false);
-    setSelectedItem(null);
-    setSideEffects('');
-    setShowTimePicker(false);
-  };
+  setModalVisible(false);
+  setSelectedItem(null);
+  setSideEffects('');
+  setShowTimePicker(false);
+  setModalMode('detail');
+};
 
   const confirmConsumption = () => {
     if (selectedItem) {
@@ -541,7 +579,7 @@ const HomeScreen = ({ navigation,onLogout }) => {
     }
     closeModal();
   };
-
+  const isEditable = modalMode === 'record' || modalMode === 'edit';
   const showTimePickerModal = () => setShowTimePicker(true);
 
   const handleTimeChange = (event, selectedDate) => {
@@ -561,13 +599,14 @@ const HomeScreen = ({ navigation,onLogout }) => {
 
   // ✅ ข้อมูลสำหรับปุ่มฟิลเตอร์
   const filterOptions = [
-    { key: 'ทั้งหมด', label: 'ทั้งหมด', color: '#4dabf7', icon: 'apps' },
-    { key: 'รอกิน', label: 'รอกิน', color: '#ffc107', icon: 'time-outline' },
-    { key: 'กินแล้ว', label: 'กินแล้ว', color: '#28a745', icon: 'checkmark-circle' },
-    { key: 'ข้าม', label: 'ข้าม', color: '#dc3545', icon: 'close-circle' },
-  ];
+  { key: 'ทั้งหมด', label: 'ทั้งหมด', color: '#4dabf7', icon: 'apps' },
+  { key: 'รอกิน', label: 'รอกิน', color: '#ffc107', icon: 'time-outline' },
+  { key: 'กินแล้ว', label: 'กินแล้ว', color: '#28a745', icon: 'checkmark-circle' },
+  { key: 'ข้าม', label: 'ข้าม', color: '#dc3545', icon: 'close-circle' },
+  { key: 'ไม่ระบุ', label: 'ไม่ระบุ', color: '#6c757d', icon: 'help-circle-outline' }, // ✅ เพิ่มใหม่
+];
 
-const handleLogout = async () => {
+  const handleLogout = async () => {
     Alert.alert(
       'ออกจากระบบ',
       'คุณต้องการออกจากระบบหรือไม่?',
@@ -582,7 +621,7 @@ const handleLogout = async () => {
           onPress: async () => {
             try {
               console.log('🚪 กดออกจากระบบ');
-              
+
               // ✅ เรียก callback จาก App.js แทน navigation.reset
               if (onLogout) {
                 await onLogout();
@@ -669,6 +708,12 @@ const handleLogout = async () => {
               </Text>
               <Text style={styles.summaryLabel}>รอกิน</Text>
             </View>
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryNumber, { color: '#6c757d' }]}>
+                {items.filter(item => item.status === 'ไม่ระบุ').length}
+              </Text>
+              <Text style={styles.summaryLabel}>ไม่ระบุ</Text>
+            </View>
           </View>
         </View>
 
@@ -741,7 +786,9 @@ const handleLogout = async () => {
                     onPress={() => openModal(med)}
                   >
                     <Ionicons name="create" size={16} color="#4dabf7" />
-                    <Text style={styles.recordButtonText}>บันทึกการกิน</Text>
+                    <Text style={styles.recordButtonText}>
+                      {med.status === 'รอกิน' ? 'บันทึกการกิน' : 'ดูรายละเอียด'} {/* ✅ */}
+                    </Text>
                   </TouchableOpacity>
                 </View>
               ))}
@@ -750,52 +797,64 @@ const handleLogout = async () => {
         })}
 
         {/* Modal สำหรับยืนยันการกินยา */}
-        <Modal visible={modalVisible} animationType="slide" transparent={true}>
-          <View style={styles.modalBackground}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <Ionicons name="medical" size={30} color="#4dabf7" />
-                <Text style={styles.modalTitle}>บันทึกการกินยา</Text>
-              </View>
+      <Modal visible={modalVisible} animationType="slide" transparent={true}>
+        <View style={styles.modalBackground}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Ionicons name="medical" size={30} color="#4dabf7" />
+              <Text style={styles.modalTitle}>
+                {modalMode === 'record' ? 'บันทึกการกินยา' : 'รายละเอียดการกินยา'}
+              </Text>
+            </View>
 
-              {selectedItem && (
-                <>
-                  <View style={styles.modalInfo}>
-                    <Text style={styles.modalMedName}>{selectedItem.name}</Text>
-                    <Text style={styles.modalDetail}>เวลาที่กำหนด: {selectedItem.time}</Text>
-                    <Text style={styles.modalDetail}>ขนาดยา: {selectedItem.dose}</Text>
-                    <Text style={styles.modalDetail}>ประเภทยา: {selectedItem.medType}</Text>
-                    <Text style={[styles.modalDetail, { fontWeight: 'bold' }]}>
-                      สถานะปัจจุบัน: {selectedItem.status}
-                    </Text>
-                  </View>
+            {selectedItem && (
+              <>
+                <View style={styles.modalInfo}>
+                  <Text style={styles.modalMedName}>{selectedItem.name}</Text>
+                  <Text style={styles.modalDetail}>เวลาที่กำหนด: {selectedItem.time}</Text>
+                  <Text style={styles.modalDetail}>ขนาดยา: {selectedItem.dose}</Text>
+                  <Text style={styles.modalDetail}>ประเภทยา: {selectedItem.medType}</Text>
+                  <Text style={[styles.modalDetail, { fontWeight: 'bold' }]}>
+                    สถานะปัจจุบัน: {selectedItem.status}
+                  </Text>
+                </View>
 
-                  {/* ส่วนเลือกเวลาที่กินยาจริง */}
-                  <View style={styles.inputSection}>
-                    <Text style={styles.inputLabel}>⏰ เวลาที่กินยาจริง:</Text>
-                    <TouchableOpacity style={styles.timeSelector} onPress={showTimePickerModal}>
-                      <Ionicons name="time" size={20} color="#4dabf7" />
-                      <Text style={styles.timeText}>{actualTakeTime}</Text>
-                      <Ionicons name="chevron-down" size={16} color="#666" />
-                    </TouchableOpacity>
-                  </View>
+                {/* ✅ แสดงส่วนกรอกข้อมูลเฉพาะโหมด 'record' และ 'edit' */}
+                {(modalMode === 'record' || modalMode === 'edit') && (
+                  <>
+                    {/* ส่วนเลือกเวลาที่กินยาจริง */}
+                    <View style={styles.inputSection}>
+                      <Text style={styles.inputLabel}>⏰ เวลาที่กินยาจริง:</Text>
+                      <TouchableOpacity 
+                        style={styles.timeSelector} 
+                        onPress={isEditable ? showTimePickerModal : null}
+                      >
+                        <Ionicons name="time" size={20} color="#4dabf7" />
+                        <Text style={styles.timeText}>{actualTakeTime}</Text>
+                        <Ionicons name="chevron-down" size={16} color="#666" />
+                      </TouchableOpacity>
+                    </View>
 
-                  {/* ช่องกรอกผลข้างเคียง */}
-                  <View style={styles.inputSection}>
-                    <Text style={styles.inputLabel}>💊 ผลข้างเคียง (ถ้ามี):</Text>
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="เช่น คลื่นไส้, ง่วงนอน, ปวดหัว..."
-                      value={sideEffects}
-                      onChangeText={setSideEffects}
-                      multiline
-                      maxLength={200}
-                      textAlignVertical="top"
-                    />
-                    <Text style={styles.characterCount}>{sideEffects.length}/200</Text>
-                  </View>
+                    {/* ช่องกรอกผลข้างเคียง */}
+                    <View style={styles.inputSection}>
+                      <Text style={styles.inputLabel}>💊 ผลข้างเคียง (ถ้ามี):</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        placeholder="เช่น คลื่นไส้, ง่วงนอน, ปวดหัว..."
+                        value={sideEffects}
+                        onChangeText={setSideEffects}
+                        multiline
+                        maxLength={200}
+                        textAlignVertical="top"
+                        editable={isEditable}
+                      />
+                      <Text style={styles.characterCount}>{sideEffects.length}/200</Text>
+                    </View>
+                  </>
+                )}
 
-                  {/* ปุ่มยืนยัน/ยกเลิก */}
+                {/* ปุ่มล่างของโมดัล */}
+                {modalMode === 'record' && (
                   <View style={styles.modalButtonRow}>
                     <TouchableOpacity style={styles.cancelBtn} onPress={closeModal}>
                       <Ionicons name="close" size={16} color="#fff" />
@@ -803,27 +862,56 @@ const handleLogout = async () => {
                     </TouchableOpacity>
 
                     <TouchableOpacity
-                      style={[styles.dontconfirmBtn, { flex: 1 }]}
-                      onPress={() => {
-                        toggleStatus(selectedItem, '', ''); // ส่ง customTime = '' เพื่อบังคับข้าม
-                        Alert.alert('บันทึกสำเร็จ', `เปลี่ยนสถานะเป็น "ข้าม"`);
-                        closeModal();
-                      }}
+                      style={styles.confirmBtn}
+                      onPress={() => toggleStatus(selectedItem, sideEffects, actualTakeTime, 'กินแล้ว')}
                     >
-                      <Ionicons name="close-circle" size={16} color="#fff" />
-                      <Text style={styles.dontconfirmText}>ข้าม</Text>
+                      <Ionicons name="checkmark" size={16} color="#fff" />
+                      <Text style={styles.confirmText}>ทานยาแล้ว</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.confirmBtn} onPress={confirmConsumption}>
-                      <Ionicons name="checkmark" size={16} color="#fff" />
-                      <Text style={styles.confirmText}>กินแล้ว</Text>
+                    <TouchableOpacity
+                      style={styles.dontconfirmBtn}
+                      onPress={() => toggleStatus(selectedItem, '', '', 'ข้าม')} // ✅ ไม่ส่ง actualTime
+                    >
+                      <Ionicons name="close-circle" size={16} color="#fff" />
+                      <Text style={styles.dontconfirmText}>ข้ามยา</Text>
                     </TouchableOpacity>
                   </View>
-                </>
-              )}
-            </View>
+                )}
+
+                {modalMode === 'detail' && (
+                  <View style={styles.modalButtonRow}>
+                    <TouchableOpacity style={styles.cancelBtn} onPress={closeModal}>
+                      <Ionicons name="close" size={16} color="#fff" />
+                      <Text style={styles.cancelText}>ปิด</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.confirmBtn} onPress={() => setModalMode('edit')}>
+                      <Ionicons name="create" size={16} color="#fff" />
+                      <Text style={styles.confirmText}>แก้ไข</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {modalMode === 'edit' && (
+                  <View style={styles.modalButtonRow}>
+                    <TouchableOpacity
+                      style={styles.cancelBtn}
+                      onPress={() => setModalMode('detail')}
+                    >
+                      <Ionicons name="close" size={16} color="#fff" />
+                      <Text style={styles.cancelText}>ยกเลิก</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.confirmBtn} onPress={saveEdits}>
+                      <Ionicons name="save" size={16} color="#fff" />
+                      <Text style={styles.confirmText}>บันทึกการเปลี่ยนแปลง</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </>
+            )}
           </View>
-        </Modal>
+        </View>
+      </Modal>
 
         {/* DateTimePicker */}
         {showTimePicker && (
@@ -837,51 +925,51 @@ const handleLogout = async () => {
         )}
 
         {/* เมนูด้านล่าง */}
-      <View style={styles.menu}>
-        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('MedicationListScreen')}>
-          <View style={styles.menuItemLeft}>
-            <Ionicons name="medical" size={20} color="#fff" />
-            <Text style={styles.menuText}>รายการยา</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#fff" />
-        </TouchableOpacity>
+        <View style={styles.menu}>
+          <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('MedicationListScreen')}>
+            <View style={styles.menuItemLeft}>
+              <Ionicons name="medical" size={20} color="#fff" />
+              <Text style={styles.menuText}>รายการยา</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#fff" />
+          </TouchableOpacity>
 
-        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Calendar')}>
-          <View style={styles.menuItemLeft}>
-            <Ionicons name="calendar" size={20} color="#fff" />
-            <Text style={styles.menuText}>ปฏิทิน</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#fff" />
-        </TouchableOpacity>
+          <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Calendar')}>
+            <View style={styles.menuItemLeft}>
+              <Ionicons name="calendar" size={20} color="#fff" />
+              <Text style={styles.menuText}>ปฏิทิน</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#fff" />
+          </TouchableOpacity>
 
-        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('History')}>
-          <View style={styles.menuItemLeft}>
-            <Ionicons name="stats-chart" size={20} color="#fff" />
-            <Text style={styles.menuText}>สรุปประวัติการกินยา</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#fff" />
-        </TouchableOpacity>
+          <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('History')}>
+            <View style={styles.menuItemLeft}>
+              <Ionicons name="stats-chart" size={20} color="#fff" />
+              <Text style={styles.menuText}>สรุปประวัติการกินยา</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#fff" />
+          </TouchableOpacity>
 
-        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('SettingsScreen')}>
-          <View style={styles.menuItemLeft}>
-            <Ionicons name="settings" size={20} color="#fff" />
-            <Text style={styles.menuText}>การตั้งค่า</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#fff" />
-        </TouchableOpacity>
+          <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('SettingsScreen')}>
+            <View style={styles.menuItemLeft}>
+              <Ionicons name="settings" size={20} color="#fff" />
+              <Text style={styles.menuText}>การตั้งค่า</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#fff" />
+          </TouchableOpacity>
 
-        {/* ✅ ปุ่มออกจากระบบ */}
-        <TouchableOpacity 
-          style={[styles.menuItem, styles.logoutButton]} 
-          onPress={handleLogout}
-        >
-          <View style={styles.menuItemLeft}>
-            <Ionicons name="log-out" size={20} color="#fff" />
-            <Text style={styles.menuText}>ออกจากระบบ</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#fff" />
-        </TouchableOpacity>
-      </View>
+          {/* ✅ ปุ่มออกจากระบบ */}
+          <TouchableOpacity
+            style={[styles.menuItem, styles.logoutButton]}
+            onPress={handleLogout}
+          >
+            <View style={styles.menuItemLeft}>
+              <Ionicons name="log-out" size={20} color="#fff" />
+              <Text style={styles.menuText}>ออกจากระบบ</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#fff" />
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </View>
 
