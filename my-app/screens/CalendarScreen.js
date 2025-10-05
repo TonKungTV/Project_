@@ -265,7 +265,7 @@ const CalendarScreen = ({ navigation }) => {
 
         if (selected > today) {
             Alert.alert(
-                'ไม่สามารถบันทึกได้',
+                '❌ ไม่สามารถบันทึกได้',
                 'คุณไม่สามารถบันทึกข้อมูลล่วงหน้าได้\nกรุณาเลือกวันปัจจุบันหรือย้อนหลัง'
             );
             return;
@@ -332,7 +332,7 @@ const CalendarScreen = ({ navigation }) => {
             });
             const confirmed = await new Promise((resolve) => {
                 Alert.alert(
-                    'ยืนยันการบันทึกย้อนหลัง',
+                    '⚠️ ยืนยันการบันทึกย้อนหลัง',
                     `คุณกำลังบันทึกข้อมูลย้อนหลังของวันที่ ${dateLabel}\nต้องการดำเนินการต่อหรือไม่?`,
                     [
                         { text: 'ยกเลิก', onPress: () => resolve(false), style: 'cancel' },
@@ -752,7 +752,7 @@ const CalendarScreen = ({ navigation }) => {
                                         <View style={styles.detailRow}>
                                             <Ionicons name={selectedMed.sideEffects ? "warning" : "checkmark-circle"} size={16} color={selectedMed.sideEffects ? "#ffc107" : "#28a745"} />
                                             <Text style={styles.detailText}>
-                                                ผลข้างเคียง: {selectedMed.sideEffects || 'ไม่มีข้อมูล'}
+                                                ผลข้างเคียง: {selectedMed.sideEffects || 'ไม่มี'}
                                             </Text>
                                         </View>
                                     </View>
