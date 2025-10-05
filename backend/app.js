@@ -23,7 +23,7 @@ const db = mysql.createConnection({
   host: 'localhost',
   user: 'root',
   password: '', // เปลี่ยนตาม XAMPP ของคุณ
-  database: 'medicationapp',
+  database: 'medicationapp (15)',
 });
 
 db.connect(err => {
