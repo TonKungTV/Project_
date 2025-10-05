@@ -26,19 +26,19 @@ import HistoryScreen from './screens/HistoryScreen';
 import ManageGroupsScreen from './screens/ManageGroupsScreen';
 import ManageTypesScreen from './screens/ManageTypesScreen';
 import ManageUnitsScreen from './screens/ManageUnitsScreen';
+import CalendarScreen from './screens/CalendarScreen'; // ✅ ใช้สะกดถูก
 
 const Stack = createNativeStackNavigator();
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(null);
   const [showSplash, setShowSplash] = useState(true);
-  const isCheckingLogin = useRef(false); // ✅ ป้องกันการเรียก checkLoginStatus ซ้ำ
+  const isCheckingLogin = useRef(false); // ✅ ป้องกันการเรียกซ้ำ
 
   useEffect(() => {
     checkLoginStatus();
 
     const subscription = AppState.addEventListener('change', (nextAppState) => {
-      // ✅ เช็คเฉพาะตอนกลับมา active และไม่อยู่ระหว่างตรวจสอบ
       if (nextAppState === 'active' && !isCheckingLogin.current && !showSplash) {
         checkLoginStatus();
       }
@@ -47,10 +47,9 @@ export default function App() {
     return () => {
       subscription.remove();
     };
-  }, [showSplash]); // ✅ เพิ่ม dependency
+  }, [showSplash]);
 
   const checkLoginStatus = async () => {
-    // ✅ ถ้ากำลังตรวจสอบอยู่ ข้าม
     if (isCheckingLogin.current) {
       console.log('กำลังตรวจสอบอยู่ ข้าม');
       return;
@@ -63,9 +62,8 @@ export default function App() {
       console.log('🔍 Checking login status:', { userId });
       const loggedIn = !!userId;
 
-      // ✅ ถ้าไม่ใช่ splash และ state ไม่เปลี่ยน ไม่ต้อง update
       if (!showSplash && loggedIn === isLoggedIn) {
-        console.log(' State ไม่เปลี่ยน ข้าม');
+        console.log('State ไม่เปลี่ยน ข้าม');
         isCheckingLogin.current = false;
         return;
       }
@@ -77,7 +75,6 @@ export default function App() {
         return;
       }
 
-      // ✅ Splash แสดง 3 วินาที
       setTimeout(() => {
         console.log('✅ Setting isLoggedIn:', loggedIn);
         setIsLoggedIn(loggedIn);
@@ -95,13 +92,11 @@ export default function App() {
     }
   };
 
-  // ✅ ฟังก์ชันที่ LoginScreen จะเรียกหลัง login สำเร็จ
   const handleLoginSuccess = () => {
     console.log('🎉 handleLoginSuccess called!');
     setIsLoggedIn(true);
   };
 
-  // ✅ ฟังก์ชันที่ HomeScreen/SettingsScreen จะเรียกเมื่อออกจากระบบ
   const handleLogout = async () => {
     console.log('🚪 handleLogout called!');
     await AsyncStorage.removeItem('userId');
@@ -138,6 +133,9 @@ export default function App() {
             <Stack.Screen name="ManageGroups" component={ManageGroupsScreen} options={{ headerShown: false }} />
             <Stack.Screen name="ManageTypes" component={ManageTypesScreen} options={{ headerShown: false }} />
             <Stack.Screen name="ManageUnits" component={ManageUnitsScreen} options={{ headerShown: false }} />
+
+            {/* ✅ แก้ชื่อ Screen ให้ตรง: CalendarScreen (สะกดถูก) */}
+            <Stack.Screen name="CalendarScreen" component={CalendarScreen} options={{ title: 'ปฏิทิน' }} />
           </Stack.Navigator>
         </NotificationProvider>
       ) : (
